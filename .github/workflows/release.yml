@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore src/BinanceCopyTradingMonitor.csproj
+      
+    - name: Build Release
+      run: dotnet build src/BinanceCopyTradingMonitor.csproj -c Release --no-restore
+      
+    - name: Publish Self-Contained Windows x64
+      run: |
+        dotnet publish src/BinanceCopyTradingMonitor.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o publish/win-x64
+          
+    - name: Zip Release
+      run: |
+        Compress-Archive -Path publish/win-x64/* -DestinationPath BinanceCopyTradingMonitor-win-x64.zip
+        
+    - name: Get version from tag
+      id: get_version
+      run: |
+        if ($env:GITHUB_REF -match 'refs/tags/(.*)') {
+          $version = $matches[1]
+        } else {
+          $version = "dev-$(git rev-parse --short HEAD)"
+        }
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+      
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Release ${{ steps.get_version.outputs.version }}
+        body: |
+          Binance Copy Trading Monitor - ${{ steps.get_version.outputs.version }}
+          
+          Features:
+          - Real-time position monitoring via web scraping
+          - WebSocket server for Android/web clients (port 8765)
+          - Desktop widget with position display
+          - Profit/Loss alerts (+50 USDT / -10 USDT)
+          
+          Installation:
+          1. Download BinanceCopyTradingMonitor-win-x64.zip
+          2. Extract to any folder
+          3. Run BinanceCopyTradingMonitor.exe (requires Windows 10/11)
+          
+          WebSocket Connection:
+          Connect your Android/web client to: ws://<YOUR_PC_IP>:8765/
+          
+          Requirements:
+          - Windows 10/11 (x64)
+          - .NET 8.0 Runtime (included in self-contained build)
+        files: |
+          BinanceCopyTradingMonitor-win-x64.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
