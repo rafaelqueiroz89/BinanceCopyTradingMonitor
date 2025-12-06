@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
@@ -9,9 +10,13 @@ namespace BinanceCopyTradingMonitor
     {
         private NotifyIcon _trayIcon = new NotifyIcon();
         private BinanceScraperManager? _scraper;
+        private BinanceWebSocketManager? _webSocketServer;
         private TextBox _textBox = new TextBox();
         private Label _statusLabel = new Label();
+        private Label _wsStatusLabel = new Label();
         private PositionWidget? _positionWidget;
+
+        private const int WEBSOCKET_PORT = 8765;
 
         public CopyTradingScraperApp()
         {
@@ -20,7 +25,7 @@ namespace BinanceCopyTradingMonitor
             this.ShowInTaskbar = false;
             
             InitializeUI();
-            _ = StartScraperAsync();
+            _ = StartAsync();
         }
 
         private void InitializeUI()
@@ -30,6 +35,16 @@ namespace BinanceCopyTradingMonitor
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(20, 20, 30);
             this.TopMost = true;
+
+            // WebSocket Status
+            _wsStatusLabel.Text = "WebSocket: Starting...";
+            _wsStatusLabel.Dock = DockStyle.Top;
+            _wsStatusLabel.Height = 25;
+            _wsStatusLabel.Font = new Font("Segoe UI", 9, FontStyle.Bold);
+            _wsStatusLabel.ForeColor = Color.FromArgb(100, 200, 255);
+            _wsStatusLabel.BackColor = Color.FromArgb(25, 25, 35);
+            _wsStatusLabel.TextAlign = ContentAlignment.MiddleCenter;
+            this.Controls.Add(_wsStatusLabel);
 
             // Status
             _statusLabel.Text = "Initializing scraper...";
@@ -54,7 +69,7 @@ namespace BinanceCopyTradingMonitor
 
             // Tray Icon
             _trayIcon.Icon = SystemIcons.Information;
-            _trayIcon.Text = "Copy Trading Scraper";
+            _trayIcon.Text = "Copy Trading Monitor";
             _trayIcon.Visible = true;
 
             var menu = new ContextMenuStrip();
@@ -62,6 +77,67 @@ namespace BinanceCopyTradingMonitor
             menu.Items.Add("Exit", null, (s, e) => { Application.Exit(); });
             _trayIcon.ContextMenuStrip = menu;
             _trayIcon.DoubleClick += (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; };
+        }
+
+        private async System.Threading.Tasks.Task StartAsync()
+        {
+            try
+            {
+                // Start WebSocket SERVER first
+                await StartWebSocketServerAsync();
+                
+                // Then start Scraper
+                await StartScraperAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}\n\nStack: {ex.StackTrace}", "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private async System.Threading.Tasks.Task StartWebSocketServerAsync()
+        {
+            try
+            {
+                UpdateWsStatus("🔌 Starting WebSocket server...");
+                
+                _webSocketServer = new BinanceWebSocketManager(WEBSOCKET_PORT);
+
+                _webSocketServer.OnLog += (msg) =>
+                {
+                    Console.WriteLine(msg);
+                };
+
+                _webSocketServer.OnError += (error) =>
+                {
+                    Console.WriteLine($"[WS ERROR] {error}");
+                };
+
+                _webSocketServer.OnClientCountChanged += (count) =>
+                {
+                    if (this.InvokeRequired)
+                        this.Invoke(new Action(() => UpdateWsStatus($"📱 WebSocket: {count} clients connected (port {WEBSOCKET_PORT})")));
+                    else
+                        UpdateWsStatus($"📱 WebSocket: {count} clients connected (port {WEBSOCKET_PORT})");
+                };
+
+                bool started = await _webSocketServer.StartAsync();
+                
+                if (started)
+                {
+                    UpdateWsStatus($"✅ WebSocket server running on port {WEBSOCKET_PORT} - 0 clients");
+                    Console.WriteLine($"\n📱 Android clients can connect to: ws://<YOUR_IP>:{WEBSOCKET_PORT}/\n");
+                }
+                else
+                {
+                    UpdateWsStatus("❌ WebSocket server failed to start");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ WebSocket error: {ex.Message}");
+                UpdateWsStatus($"❌ WebSocket error: {ex.Message}");
+            }
         }
 
         private async System.Threading.Tasks.Task StartScraperAsync()
@@ -112,7 +188,15 @@ namespace BinanceCopyTradingMonitor
             _statusLabel.Text = msg;
         }
 
-        private void DisplayScrapedPositions(System.Collections.Generic.List<ScrapedPosition> positions)
+        private void UpdateWsStatus(string msg)
+        {
+            if (_wsStatusLabel.InvokeRequired)
+                _wsStatusLabel.Invoke(new Action(() => _wsStatusLabel.Text = msg));
+            else
+                _wsStatusLabel.Text = msg;
+        }
+
+        private void DisplayScrapedPositions(List<ScrapedPosition> positions)
         {
             // Update TextBox (console)
             var sb = new System.Text.StringBuilder();
@@ -167,9 +251,27 @@ namespace BinanceCopyTradingMonitor
             }).ToList();
 
             _positionWidget.UpdatePositions(positionDataList, 0, 0, 0);
+
+            // 🔥 BROADCAST TO WEBSOCKET CLIENTS
+            _ = BroadcastToWebSocketAsync(positions);
         }
 
-        private System.Collections.Generic.HashSet<string> _notifiedPositions = new System.Collections.Generic.HashSet<string>();
+        private async System.Threading.Tasks.Task BroadcastToWebSocketAsync(List<ScrapedPosition> positions)
+        {
+            try
+            {
+                if (_webSocketServer != null)
+                {
+                    await _webSocketServer.BroadcastPositionsAsync(positions);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error broadcasting to WebSocket: {ex.Message}");
+            }
+        }
+
+        private HashSet<string> _notifiedPositions = new HashSet<string>();
 
         private void CheckPnLAndNotify(ScrapedPosition pos)
         {
@@ -200,9 +302,12 @@ namespace BinanceCopyTradingMonitor
                         ShowNotification($"{pos.Trader} - {pos.Symbol}", 
                             $"PROFIT: {pnlText}", 
                             ToolTipIcon.Info, true);
+                        
+                        // Broadcast alert to WebSocket clients
+                        _ = _webSocketServer?.BroadcastAlertAsync($"{pos.Trader} - {pos.Symbol}", $"PROFIT: {pnlText}", true);
                     }
                 }
-                else if (pnlValue <= 0)
+                else if (pnlValue < -10)
                 {
                     alertKey = $"{positionKey}|LOSS";
                     if (!_notifiedPositions.Contains(alertKey))
@@ -211,11 +316,14 @@ namespace BinanceCopyTradingMonitor
                         ShowNotification($"{pos.Trader} - {pos.Symbol}", 
                             $"LOSS: {pnlText}", 
                             ToolTipIcon.Warning, false);
+                        
+                        // Broadcast alert to WebSocket clients
+                        _ = _webSocketServer?.BroadcastAlertAsync($"{pos.Trader} - {pos.Symbol}", $"LOSS: {pnlText}", false);
                     }
                 }
                 else
                 {
-                    // Reset notifications when PnL is between 0 and 50
+                    // Reset notifications when PnL is between -10 and 50
                     _notifiedPositions.Remove($"{positionKey}|PROFIT");
                     _notifiedPositions.Remove($"{positionKey}|LOSS");
                 }
@@ -229,7 +337,7 @@ namespace BinanceCopyTradingMonitor
         private void ShowNotification(string title, string message, ToolTipIcon icon, bool isProfit)
         {
             // Windows notification center alert
-            _trayIcon.BalloonTipTitle = isProfit ? "PROFIT ALERT" : "LOSS ALERT";
+            _trayIcon.BalloonTipTitle = isProfit ? "💰 PROFIT ALERT" : "⚠️ LOSS ALERT";
             _trayIcon.BalloonTipText = $"{title}\n{message}";
             _trayIcon.BalloonTipIcon = icon;
             _trayIcon.ShowBalloonTip(5000);
@@ -242,6 +350,7 @@ namespace BinanceCopyTradingMonitor
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _scraper?.Stop();
+            _webSocketServer?.Stop();
             
             if (e.CloseReason == CloseReason.UserClosing)
             {
@@ -256,6 +365,7 @@ namespace BinanceCopyTradingMonitor
             if (disposing)
             {
                 _scraper?.Stop();
+                _webSocketServer?.Dispose();
                 _trayIcon?.Dispose();
                 _positionWidget?.Dispose();
             }
