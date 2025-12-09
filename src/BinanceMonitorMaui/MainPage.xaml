@@ -1,0 +1,70 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BinanceMonitorMaui.MainPage"
+             Title="Binance Monitor"
+             BackgroundColor="#1a1a2e">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Settings" Clicked="OnSettingsClicked" />
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,*" Padding="10">
+        
+        <Frame Grid.Row="0" 
+               BackgroundColor="#16213e" 
+               CornerRadius="8" 
+               Padding="12"
+               BorderColor="Transparent">
+            <HorizontalStackLayout HorizontalOptions="Center" Spacing="10">
+                <Label x:Name="StatusLabel" 
+                       Text="Disconnected" 
+                       FontSize="16"
+                       FontAttributes="Bold"
+                       VerticalOptions="Center"
+                       TextColor="#e94560"/>
+                <Label x:Name="PositionCountLabel" 
+                       Text="" 
+                       FontSize="14"
+                       VerticalOptions="Center"
+                       TextColor="#888"/>
+            </HorizontalStackLayout>
+        </Frame>
+        
+        <CollectionView x:Name="PositionsCollection" 
+                        Grid.Row="1"
+                        Margin="0,10,0,0"
+                        BackgroundColor="Transparent">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Frame Margin="0,4" Padding="12" BackgroundColor="#16213e" CornerRadius="8" BorderColor="Transparent">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="{Binding Symbol}" FontAttributes="Bold" FontSize="16" TextColor="White"/>
+                                <Label Text="{Binding Trader}" TextColor="#666" FontSize="11"/>
+                                <HorizontalStackLayout Margin="0,3,0,0">
+                                    <Label Text="{Binding Size}" FontSize="11" TextColor="#888"/>
+                                    <Label Text=" | " FontSize="11" TextColor="#444"/>
+                                    <Label Text="{Binding Margin}" FontSize="11" TextColor="#888"/>
+                                </HorizontalStackLayout>
+                            </VerticalStackLayout>
+                            <Label Grid.Column="1" 
+                                   Text="{Binding PnL}" 
+                                   FontSize="16" 
+                                   FontAttributes="Bold"
+                                   VerticalOptions="Center"
+                                   TextColor="{Binding PnLColor}"/>
+                        </Grid>
+                    </Frame>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+            <CollectionView.EmptyView>
+                <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center">
+                    <Label Text="No positions" FontSize="14" TextColor="#666" HorizontalTextAlignment="Center"/>
+                </VerticalStackLayout>
+            </CollectionView.EmptyView>
+        </CollectionView>
+        
+    </Grid>
+
+</ContentPage>

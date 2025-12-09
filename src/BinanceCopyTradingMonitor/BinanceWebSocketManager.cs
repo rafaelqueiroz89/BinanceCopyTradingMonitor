@@ -50,12 +50,11 @@ namespace BinanceCopyTradingMonitor
                     _httpListener = new HttpListener();
                     _httpListener.Prefixes.Add($"http://localhost:{_port}/");
                     _httpListener.Start();
-                    Log($"⚠️ WebSocket server running on localhost only (port {_port})");
+                    Log($"WARNING: WebSocket server running on localhost only (port {_port})");
                 }
 
                 _isRunning = true;
-                Log($"🚀 WebSocket server started on port {_port}");
-                Log($"📱 Android clients can connect to: ws://<YOUR_IP>:{_port}/");
+                Log($"WebSocket server started on port {_port}");
 
                 _ = Task.Run(() => AcceptClientsAsync(_cancellationTokenSource.Token));
 
@@ -118,7 +117,7 @@ namespace BinanceCopyTradingMonitor
                 var clientIp = context.Request.RemoteEndPoint?.ToString() ?? "unknown";
                 _clients[clientId] = webSocket;
                 
-                Log($"✅ Client connected: {clientIp} (Total: {_clients.Count})");
+                Log($"Client connected: {clientIp} (Total: {_clients.Count})");
                 OnClientCountChanged?.Invoke(_clients.Count);
 
                 await SendCurrentPositionsToClientAsync(webSocket, cancellationToken);
@@ -141,19 +140,19 @@ namespace BinanceCopyTradingMonitor
                     }
                 }
             }
-            catch (WebSocketException ex)
+            catch (WebSocketException)
             {
-                Log($"WebSocket error: {ex.Message}");
             }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                Error($"Client error: {ex.Message}");
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
             }
             finally
             {
                 _clients.TryRemove(clientId, out _);
                 webSocket?.Dispose();
-                Log($"❌ Client disconnected (Total: {_clients.Count})");
                 OnClientCountChanged?.Invoke(_clients.Count);
             }
         }
@@ -174,15 +173,10 @@ namespace BinanceCopyTradingMonitor
                     case "get_positions":
                         await SendCurrentPositionsToClientAsync(webSocket, cancellationToken);
                         break;
-                        
-                    default:
-                        Log($"📨 Received from client: {message}");
-                        break;
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Error($"Error handling client message: {ex.Message}");
             }
         }
 
@@ -220,9 +214,8 @@ namespace BinanceCopyTradingMonitor
                     true,
                     cancellationToken);
             }
-            catch (Exception ex)
+            catch
             {
-                Error($"Error sending to client: {ex.Message}");
             }
         }
 
@@ -279,11 +272,6 @@ namespace BinanceCopyTradingMonitor
             {
                 OnClientCountChanged?.Invoke(_clients.Count);
             }
-
-            if (_clients.Count > 0)
-            {
-                Log($"📤 Broadcast to {_clients.Count} clients: {positions.Count} positions");
-            }
         }
 
         public async Task BroadcastMessageAsync(object message)
@@ -324,42 +312,47 @@ namespace BinanceCopyTradingMonitor
 
         public void Stop()
         {
-            _isRunning = false;
-            _cancellationTokenSource?.Cancel();
-
-            foreach (var kvp in _clients)
+            try
             {
-                try
+                _isRunning = false;
+                _cancellationTokenSource?.Cancel();
+
+                foreach (var kvp in _clients)
                 {
-                    kvp.Value.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(1000);
-                    kvp.Value.Dispose();
+                    try
+                    {
+                        if (kvp.Value.State == WebSocketState.Open)
+                        {
+                            kvp.Value.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(500);
+                        }
+                        kvp.Value.Dispose();
+                    }
+                    catch { }
                 }
-                catch { }
+                _clients.Clear();
+
+                _httpListener?.Stop();
+                _httpListener?.Close();
             }
-            _clients.Clear();
-
-            _httpListener?.Stop();
-            _httpListener?.Close();
-
-            Log("🛑 WebSocket server stopped");
+            catch { }
         }
 
         private void Log(string message)
         {
-            Console.WriteLine($"[WS] {message}");
-            OnLog?.Invoke(message);
+            try { Console.WriteLine($"[WS] {message}"); } catch { }
+            try { OnLog?.Invoke(message); } catch { }
         }
 
         private void Error(string message)
         {
-            Console.WriteLine($"[WS ERROR] {message}");
-            OnError?.Invoke(message);
+            try { Console.WriteLine($"[WS ERROR] {message}"); } catch { }
+            try { OnError?.Invoke(message); } catch { }
         }
 
         public void Dispose()
         {
-            Stop();
-            _cancellationTokenSource?.Dispose();
+            try { Stop(); } catch { }
+            try { _cancellationTokenSource?.Dispose(); } catch { }
         }
     }
 }

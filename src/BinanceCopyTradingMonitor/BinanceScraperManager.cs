@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using PuppeteerSharp;
 using AngleSharp;
@@ -39,8 +40,18 @@ namespace BinanceCopyTradingMonitor
 
                 // Download Chromium if necessary
                 var browserFetcher = new BrowserFetcher();
-                await browserFetcher.DownloadAsync();
-                Log("Chromium ready");
+                var installedBrowser = browserFetcher.GetInstalledBrowsers().FirstOrDefault();
+                
+                if (installedBrowser == null)
+                {
+                    Log("Chromium not found. Downloading... (this may take a few minutes)");
+                    await browserFetcher.DownloadAsync();
+                    Log("Chromium download complete!");
+                }
+                else
+                {
+                    Log("Chromium found locally");
+                }
 
                 // Open browser
                 // PHASE 1: Visible browser for login
@@ -313,55 +324,58 @@ namespace BinanceCopyTradingMonitor
 
         private async Task<List<ScrapedPosition>> ExtractPositionsAsync()
         {
+            if (!_isRunning) return new List<ScrapedPosition>();
+            
             try
             {
                 var allPositions = new List<ScrapedPosition>();
+                var pagesToExtract = _traderPages.ToList();
 
-                // Extract from each tab in parallel!
-                var tasks = _traderPages.Select(async kvp =>
+                var tasks = pagesToExtract.Select(async kvp =>
                 {
+                    if (!_isRunning) return new List<ScrapedPosition>();
+                    
                     var traderName = kvp.Key;
                     var page = kvp.Value;
 
                     try
                     {
-                        // Verify table still exists
+                        if (!_isRunning || page == null) return new List<ScrapedPosition>();
+                        
                         var hasTable = await page.EvaluateExpressionAsync<bool>("!!document.querySelector('table')");
-                        if (!hasTable)
+                        if (!hasTable || !_isRunning)
                         {
                             return new List<ScrapedPosition>();
                         }
 
-                        // Extract table HTML (always expanded!)
                         var tableHtml = await page.EvaluateExpressionAsync<string>(
                             "document.querySelector('table')?.outerHTML || ''"
                         );
 
-                        if (string.IsNullOrEmpty(tableHtml))
+                        if (string.IsNullOrEmpty(tableHtml) || !_isRunning)
                         {
                             return new List<ScrapedPosition>();
                         }
 
-                        // Parse with AngleSharp
                         var positions = ParseTableHtml(tableHtml, traderName);
                         
                         return positions;
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Error($"Error extracting {traderName}: {ex.Message}");
                         return new List<ScrapedPosition>();
                     }
                 }).ToList();
 
                 var results = await Task.WhenAll(tasks);
                 
+                if (!_isRunning) return new List<ScrapedPosition>();
+                
                 foreach (var positions in results)
                 {
                     allPositions.AddRange(positions);
                 }
 
-                // Remove duplicates
                 var uniquePositions = allPositions
                     .GroupBy(p => $"{p.Trader}|{p.Symbol}")
                     .Select(g => g.First())
@@ -369,9 +383,8 @@ namespace BinanceCopyTradingMonitor
                 
                 return uniquePositions;
             }
-            catch (Exception ex)
+            catch
             {
-                Error($"Error extracting positions: {ex.Message}");
                 return new List<ScrapedPosition>();
             }
         }
@@ -379,6 +392,8 @@ namespace BinanceCopyTradingMonitor
         public void Stop()
         {
             _isRunning = false;
+            _traderPages.Clear();
+            Thread.Sleep(500);
             KillAllChromiumProcesses();
         }
 
@@ -477,14 +492,14 @@ namespace BinanceCopyTradingMonitor
 
         private void Log(string message)
         {
-            Console.WriteLine(message);
-            OnLog?.Invoke(message);
+            try { Console.WriteLine(message); } catch { }
+            try { OnLog?.Invoke(message); } catch { }
         }
 
         private void Error(string message)
         {
-            Console.WriteLine($"ERROR: {message}");
-            OnError?.Invoke(message);
+            try { Console.WriteLine($"ERROR: {message}"); } catch { }
+            try { OnError?.Invoke(message); } catch { }
         }
 
         private void CleanupScreenshots()
@@ -529,22 +544,25 @@ namespace BinanceCopyTradingMonitor
 
         public void Dispose()
         {
-            _isRunning = false;
-            
-            // Close all trader tabs
-            foreach (var kvp in _traderPages)
+            try
             {
-                try
+                _isRunning = false;
+                
+                foreach (var kvp in _traderPages)
                 {
-                    kvp.Value?.CloseAsync().Wait();
+                    try
+                    {
+                        kvp.Value?.CloseAsync().Wait(500);
+                    }
+                    catch { }
                 }
-                catch { }
+                _traderPages.Clear();
+                
+                try { _page?.CloseAsync().Wait(500); } catch { }
+                try { _browser?.CloseAsync().Wait(500); } catch { }
+                try { _browser?.Dispose(); } catch { }
             }
-            _traderPages.Clear();
-            
-            _page?.CloseAsync().Wait();
-            _browser?.CloseAsync().Wait();
-            _browser?.Dispose();
+            catch { }
         }
     }
 

@@ -54,38 +54,50 @@ namespace BinanceCopyTradingMonitor
                 
                 Application.Run(new CopyTradingScraperApp());
                 
-                Console.WriteLine("\nApplication closed normally");
+                try { Console.WriteLine("\nApplication closed normally"); } catch { }
                 KillAllChromium();
             }
             catch (Exception ex)
             {
-                Console.WriteLine("\nFATAL ERROR");
-                Console.WriteLine($"Message: {ex.Message}");
-                Console.WriteLine($"Stack Trace:\n{ex.StackTrace}");
+                try
+                {
+                    Console.WriteLine("\nFATAL ERROR");
+                    Console.WriteLine($"Message: {ex.Message}");
+                    Console.WriteLine($"Stack Trace:\n{ex.StackTrace}");
+                }
+                catch { }
                 
                 KillAllChromium();
                 
-                MessageBox.Show(
-                    $"FATAL ERROR:\n\n{ex.Message}\n\nSee console for details.",
-                    "Fatal Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                try
+                {
+                    MessageBox.Show(
+                        $"FATAL ERROR:\n\n{ex.Message}\n\nSee console for details.",
+                        "Fatal Error",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                }
+                catch { }
             }
             finally
             {
-                Console.WriteLine("Final cleanup: killing Chromium...");
+                try { Console.WriteLine("Final cleanup: killing Chromium..."); } catch { }
                 KillAllChromium();
             }
             
-            Console.WriteLine("\nPress any key to close...");
-            Console.ReadKey();
+            try 
+            { 
+                Console.WriteLine("\nPress any key to close...");
+                Console.ReadKey();
+            } 
+            catch { }
         }
 
         static void KillAllChromium()
         {
             try
             {
-                Console.WriteLine("Killing all Chromium processes...");
+                try { Console.WriteLine("Killing all Chromium processes..."); } catch { }
                 
                 var processes = System.Diagnostics.Process.GetProcesses()
                     .Where(p => p.ProcessName.ToLower().Contains("chrom"))
@@ -95,19 +107,16 @@ namespace BinanceCopyTradingMonitor
                 {
                     try
                     {
-                        Console.WriteLine($"   {process.ProcessName} (PID: {process.Id})");
+                        try { Console.WriteLine($"   {process.ProcessName} (PID: {process.Id})"); } catch { }
                         process.Kill();
                         process.WaitForExit(1000);
                     }
                     catch { }
                 }
                 
-                Console.WriteLine("Chromium cleaned!");
+                try { Console.WriteLine("Chromium cleaned!"); } catch { }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
-            }
+            catch { }
         }
     }
 }

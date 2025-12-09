@@ -116,27 +116,25 @@ namespace BinanceCopyTradingMonitor
                 _webSocketServer.OnClientCountChanged += (count) =>
                 {
                     if (this.InvokeRequired)
-                        this.Invoke(new Action(() => UpdateWsStatus($"📱 WebSocket: {count} clients connected (port {WEBSOCKET_PORT})")));
+                        this.Invoke(new Action(() => UpdateWsStatus($"WebSocket: {count} clients (port {WEBSOCKET_PORT})")));
                     else
-                        UpdateWsStatus($"📱 WebSocket: {count} clients connected (port {WEBSOCKET_PORT})");
+                        UpdateWsStatus($"WebSocket: {count} clients (port {WEBSOCKET_PORT})");
                 };
 
                 bool started = await _webSocketServer.StartAsync();
                 
                 if (started)
                 {
-                    UpdateWsStatus($"✅ WebSocket server running on port {WEBSOCKET_PORT} - 0 clients");
-                    Console.WriteLine($"\n📱 Android clients can connect to: ws://<YOUR_IP>:{WEBSOCKET_PORT}/\n");
+                    UpdateWsStatus($"WebSocket server running on port {WEBSOCKET_PORT} - 0 clients");
                 }
                 else
                 {
-                    UpdateWsStatus("❌ WebSocket server failed to start");
+                    UpdateWsStatus("WebSocket server failed to start");
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"⚠️ WebSocket error: {ex.Message}");
-                UpdateWsStatus($"❌ WebSocket error: {ex.Message}");
+                UpdateWsStatus($"WebSocket error: {ex.Message}");
             }
         }
 
@@ -265,9 +263,8 @@ namespace BinanceCopyTradingMonitor
                     await _webSocketServer.BroadcastPositionsAsync(positions);
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                Console.WriteLine($"Error broadcasting to WebSocket: {ex.Message}");
             }
         }
 
@@ -349,13 +346,15 @@ namespace BinanceCopyTradingMonitor
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            _scraper?.Stop();
-            _webSocketServer?.Stop();
-            
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
                 this.Hide();
+            }
+            else
+            {
+                try { _scraper?.Stop(); } catch { }
+                try { _webSocketServer?.Stop(); } catch { }
             }
             base.OnFormClosing(e);
         }
@@ -364,10 +363,10 @@ namespace BinanceCopyTradingMonitor
         {
             if (disposing)
             {
-                _scraper?.Stop();
-                _webSocketServer?.Dispose();
-                _trayIcon?.Dispose();
-                _positionWidget?.Dispose();
+                try { _scraper?.Stop(); } catch { }
+                try { _webSocketServer?.Dispose(); } catch { }
+                try { _trayIcon?.Dispose(); } catch { }
+                try { _positionWidget?.Dispose(); } catch { }
             }
             base.Dispose(disposing);
         }
