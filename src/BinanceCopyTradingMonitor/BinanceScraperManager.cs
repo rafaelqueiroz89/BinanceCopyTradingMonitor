@@ -468,18 +468,18 @@ namespace BinanceCopyTradingMonitor
                     var margin = marginEl?.TextContent.Trim() ?? "";
 
                     // PNL: cell 7, get all text
-                    var pnl = cells[7].TextContent.Trim();
+                    var pnlRaw = cells[7].TextContent.Trim();
 
-                    positions.Add(new ScrapedPosition
+                    var position = new ScrapedPosition
                     {
                         Trader = traderName,
                         Symbol = symbol,
                         Side = "",
                         Size = size,
-                        Margin = margin,
-                        PnL = pnl,
-                        RawData = ""
-                    });
+                        Margin = margin
+                    };
+                    position.ParsePnL(pnlRaw);
+                    positions.Add(position);
                 }
             }
             catch (Exception ex)
@@ -573,8 +573,50 @@ namespace BinanceCopyTradingMonitor
         public string Side { get; set; } = "";
         public string Size { get; set; } = "";
         public string Margin { get; set; } = "";
-        public string PnL { get; set; } = "";
-        public string RawData { get; set; } = "";
+        public string PnLRaw { get; set; } = "";
+        public decimal PnL { get; set; } = 0;
+        public string PnLCurrency { get; set; } = "USDT";
+        public decimal PnLPercentage { get; set; } = 0;
+        
+        public void ParsePnL(string rawPnL)
+        {
+            PnLRaw = rawPnL;
+            if (string.IsNullOrEmpty(rawPnL)) return;
+            
+            try
+            {
+                // Format: "-1.10 USDT-4.80%" or "+0.13 USDT+0.15%"
+                var text = rawPnL.Replace(",", ".").Trim();
+                
+                // Find currency position (USDT, USDC, etc)
+                var currencyIndex = text.IndexOf("USDT", StringComparison.OrdinalIgnoreCase);
+                if (currencyIndex == -1) currencyIndex = text.IndexOf("USDC", StringComparison.OrdinalIgnoreCase);
+                if (currencyIndex == -1) return;
+                
+                // Extract PnL value (before currency)
+                var pnlStr = text.Substring(0, currencyIndex).Trim();
+                if (decimal.TryParse(pnlStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pnlValue))
+                {
+                    PnL = pnlValue;
+                }
+                
+                // Extract currency
+                PnLCurrency = text.Substring(currencyIndex, 4);
+                
+                // Extract percentage (after currency)
+                var afterCurrency = text.Substring(currencyIndex + 4);
+                var percentIndex = afterCurrency.IndexOf('%');
+                if (percentIndex > 0)
+                {
+                    var percentStr = afterCurrency.Substring(0, percentIndex).Trim();
+                    if (decimal.TryParse(percentStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var percentValue))
+                    {
+                        PnLPercentage = percentValue;
+                    }
+                }
+            }
+            catch { }
+        }
     }
 
     public class ScrapedTraderData

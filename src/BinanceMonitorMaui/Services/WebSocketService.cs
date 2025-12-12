@@ -11,12 +11,14 @@ namespace BinanceMonitorMaui.Services
         private CancellationTokenSource? _cts;
 
         public event Action<List<Position>>? OnPositionsUpdated;
+        public event Action<decimal, decimal>? OnTotalsUpdated;
         public event Action<bool, string>? OnConnectionStatusChanged;
         public event Action<string, string, bool>? OnAlert;
+        public event Action<QuickGainerAlert>? OnQuickGainer;
 
         public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
-        public async Task ConnectAsync(string url)
+        public async Task ConnectAsync(string url, string? token = null)
         {
             try
             {
@@ -26,13 +28,54 @@ namespace BinanceMonitorMaui.Services
                 var uri = new Uri(url);
                 await _webSocket.ConnectAsync(uri, _cts.Token);
 
-                OnConnectionStatusChanged?.Invoke(true, "Connected");
+                // If token provided, authenticate first
+                if (!string.IsNullOrEmpty(token))
+                {
+                    var authSuccess = await AuthenticateAsync(token);
+                    if (!authSuccess)
+                    {
+                        OnConnectionStatusChanged?.Invoke(false, "Auth failed");
+                        return;
+                    }
+                }
 
+                OnConnectionStatusChanged?.Invoke(true, "Connected");
                 _ = Task.Run(() => ReceiveLoop());
             }
             catch (Exception ex)
             {
                 OnConnectionStatusChanged?.Invoke(false, $"Failed: {ex.Message}");
+            }
+        }
+
+        private async Task<bool> AuthenticateAsync(string token)
+        {
+            try
+            {
+                // Send auth message
+                var authMessage = JsonSerializer.Serialize(new { type = "auth", token = token });
+                var buffer = Encoding.UTF8.GetBytes(authMessage);
+                await _webSocket!.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts!.Token);
+
+                // Wait for response (5 second timeout)
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
+
+                var responseBuffer = new byte[1024];
+                var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(responseBuffer), linkedCts.Token);
+
+                if (result.MessageType != WebSocketMessageType.Text)
+                    return false;
+
+                var response = Encoding.UTF8.GetString(responseBuffer, 0, result.Count);
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var message = JsonSerializer.Deserialize<AuthResponse>(response, options);
+
+                return message?.type == "auth_success";
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -86,6 +129,10 @@ namespace BinanceMonitorMaui.Services
                         {
                             OnPositionsUpdated?.Invoke(message.data);
                         }
+                        
+                        OnTotalsUpdated?.Invoke(
+                            message.totalPnL ?? 0,
+                            message.totalPnLPercentage ?? 0);
                         break;
                         
                     case "alert":
@@ -93,6 +140,20 @@ namespace BinanceMonitorMaui.Services
                             message.title ?? "Alert",
                             message.message ?? "",
                             message.isProfit ?? false);
+                        break;
+                        
+                    case "quick_gainer":
+                        var alert = new QuickGainerAlert
+                        {
+                            AlertType = message.alertType ?? "quick_gainer",
+                            Trader = message.trader ?? "",
+                            Symbol = message.symbol ?? "",
+                            PnL = message.pnl ?? 0,
+                            PnLPercentage = message.pnlPercentage ?? 0,
+                            Growth = message.growth ?? 0,
+                            Message = message.message ?? ""
+                        };
+                        OnQuickGainer?.Invoke(alert);
                         break;
                 }
             }
@@ -120,5 +181,11 @@ namespace BinanceMonitorMaui.Services
             _cts?.Cancel();
             _webSocket?.Dispose();
         }
+    }
+
+    internal class AuthResponse
+    {
+        public string? type { get; set; }
+        public string? reason { get; set; }
     }
 }

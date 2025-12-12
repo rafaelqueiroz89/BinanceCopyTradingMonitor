@@ -18,4 +18,8 @@
     <None Include="tessdata\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="config.json" CopyToOutputDirectory="PreserveNewest" Condition="Exists('config.json')" />
+  </ItemGroup>
+
 </Project>

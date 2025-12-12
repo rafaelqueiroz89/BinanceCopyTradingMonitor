@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
@@ -13,10 +14,11 @@ namespace BinanceCopyTradingMonitor
     public class BinanceWebSocketManager : IDisposable
     {
         private HttpListener? _httpListener;
-        private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
+        private readonly ConcurrentDictionary<string, (WebSocket Socket, bool IsAuthenticated)> _clients = new();
         private CancellationTokenSource? _cancellationTokenSource;
         private bool _isRunning;
         private readonly int _port;
+        private readonly string? _authToken;
         private List<ScrapedPosition> _latestPositions = new();
         private readonly object _positionsLock = new();
 
@@ -24,12 +26,14 @@ namespace BinanceCopyTradingMonitor
         public event Action<string>? OnError;
         public event Action<int>? OnClientCountChanged;
 
-        public int ConnectedClients => _clients.Count;
+        public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
+        public bool RequiresAuth => !string.IsNullOrEmpty(_authToken);
 
-        public BinanceWebSocketManager(int port = 8765)
+        public BinanceWebSocketManager(int port = 8765, string? authToken = null)
         {
             _port = port;
+            _authToken = authToken;
         }
 
         public async Task<bool> StartAsync()
@@ -54,7 +58,8 @@ namespace BinanceCopyTradingMonitor
                 }
 
                 _isRunning = true;
-                Log($"WebSocket server started on port {_port}");
+                var authStatus = RequiresAuth ? " (token auth enabled)" : "";
+                Log($"WebSocket server started on port {_port}{authStatus}");
 
                 _ = Task.Run(() => AcceptClientsAsync(_cancellationTokenSource.Token));
 
@@ -85,8 +90,9 @@ namespace BinanceCopyTradingMonitor
                         var statusJson = JsonConvert.SerializeObject(new
                         {
                             status = "running",
-                            clients = _clients.Count,
+                            clients = ConnectedClients,
                             positions = _latestPositions.Count,
+                            requiresAuth = RequiresAuth,
                             timestamp = DateTime.UtcNow
                         });
                         
@@ -108,18 +114,35 @@ namespace BinanceCopyTradingMonitor
         {
             WebSocket? webSocket = null;
             var clientId = Guid.NewGuid().ToString();
+            var clientIp = context.Request.RemoteEndPoint?.ToString() ?? "unknown";
 
             try
             {
                 var wsContext = await context.AcceptWebSocketAsync(null);
                 webSocket = wsContext.WebSocket;
                 
-                var clientIp = context.Request.RemoteEndPoint?.ToString() ?? "unknown";
-                _clients[clientId] = webSocket;
+                // If no auth required, mark as authenticated immediately
+                bool isAuthenticated = !RequiresAuth;
+                _clients[clientId] = (webSocket, isAuthenticated);
                 
-                Log($"Client connected: {clientIp} (Total: {_clients.Count})");
-                OnClientCountChanged?.Invoke(_clients.Count);
+                Log($"Client connected: {clientIp}");
 
+                if (RequiresAuth)
+                {
+                    // Wait for authentication (5 second timeout)
+                    var authSuccess = await WaitForAuthenticationAsync(webSocket, clientId, cancellationToken);
+                    
+                    if (!authSuccess)
+                    {
+                        Log($"Client {clientIp} failed authentication");
+                        await webSocket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Authentication failed", CancellationToken.None);
+                        return;
+                    }
+                    
+                    Log($"Client {clientIp} authenticated (Total: {ConnectedClients})");
+                }
+                
+                OnClientCountChanged?.Invoke(ConnectedClients);
                 await SendCurrentPositionsToClientAsync(webSocket, cancellationToken);
 
                 var buffer = new byte[4096];
@@ -140,20 +163,62 @@ namespace BinanceCopyTradingMonitor
                     }
                 }
             }
-            catch (WebSocketException)
-            {
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception) when (!cancellationToken.IsCancellationRequested)
-            {
-            }
+            catch (WebSocketException) { }
+            catch (OperationCanceledException) { }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested) { }
             finally
             {
                 _clients.TryRemove(clientId, out _);
                 webSocket?.Dispose();
-                OnClientCountChanged?.Invoke(_clients.Count);
+                OnClientCountChanged?.Invoke(ConnectedClients);
+            }
+        }
+
+        private async Task<bool> WaitForAuthenticationAsync(WebSocket webSocket, string clientId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                
+                var buffer = new byte[1024];
+                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), linkedCts.Token);
+                
+                if (result.MessageType != WebSocketMessageType.Text)
+                    return false;
+                
+                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                var json = JsonConvert.DeserializeObject<dynamic>(message);
+                
+                var type = (string?)json?.type;
+                var token = (string?)json?.token;
+                
+                if (type == "auth" && token == _authToken)
+                {
+                    _clients[clientId] = (webSocket, true);
+                    
+                    // Send auth success response
+                    await SendToClientAsync(webSocket, new { type = "auth_success" }, cancellationToken);
+                    return true;
+                }
+                
+                // Send auth failed response
+                await SendToClientAsync(webSocket, new { type = "auth_failed", reason = "Invalid token" }, cancellationToken);
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                // Timeout - send auth failed
+                try
+                {
+                    await SendToClientAsync(webSocket, new { type = "auth_failed", reason = "Timeout" }, CancellationToken.None);
+                }
+                catch { }
+                return false;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -175,9 +240,7 @@ namespace BinanceCopyTradingMonitor
                         break;
                 }
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         private async Task SendCurrentPositionsToClientAsync(WebSocket webSocket, CancellationToken cancellationToken)
@@ -188,11 +251,16 @@ namespace BinanceCopyTradingMonitor
                 positions = new List<ScrapedPosition>(_latestPositions);
             }
 
+            var totalPnL = positions.Sum(p => p.PnL);
+            var totalPnLPercentage = positions.Count > 0 ? positions.Average(p => p.PnLPercentage) : 0;
+
             var message = new
             {
                 type = "positions",
                 data = positions,
                 count = positions.Count,
+                totalPnL = Math.Round(totalPnL, 2),
+                totalPnLPercentage = Math.Round(totalPnLPercentage, 2),
                 timestamp = DateTime.UtcNow
             };
 
@@ -214,9 +282,7 @@ namespace BinanceCopyTradingMonitor
                     true,
                     cancellationToken);
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         public async Task BroadcastPositionsAsync(List<ScrapedPosition> positions)
@@ -226,11 +292,16 @@ namespace BinanceCopyTradingMonitor
                 _latestPositions = new List<ScrapedPosition>(positions);
             }
 
+            var totalPnL = positions.Sum(p => p.PnL);
+            var totalPnLPercentage = positions.Count > 0 ? positions.Average(p => p.PnLPercentage) : 0;
+
             var message = new
             {
                 type = "positions",
                 data = positions,
                 count = positions.Count,
+                totalPnL = Math.Round(totalPnL, 2),
+                totalPnLPercentage = Math.Round(totalPnLPercentage, 2),
                 timestamp = DateTime.UtcNow
             };
 
@@ -241,11 +312,14 @@ namespace BinanceCopyTradingMonitor
 
             foreach (var kvp in _clients)
             {
+                // Only send to authenticated clients
+                if (!kvp.Value.IsAuthenticated) continue;
+                
                 try
                 {
-                    if (kvp.Value.State == WebSocketState.Open)
+                    if (kvp.Value.Socket.State == WebSocketState.Open)
                     {
-                        await kvp.Value.SendAsync(
+                        await kvp.Value.Socket.SendAsync(
                             new ArraySegment<byte>(buffer),
                             WebSocketMessageType.Text,
                             true,
@@ -264,13 +338,13 @@ namespace BinanceCopyTradingMonitor
 
             foreach (var clientId in deadClients)
             {
-                _clients.TryRemove(clientId, out var ws);
-                ws?.Dispose();
+                _clients.TryRemove(clientId, out var client);
+                client.Socket?.Dispose();
             }
 
             if (deadClients.Count > 0)
             {
-                OnClientCountChanged?.Invoke(_clients.Count);
+                OnClientCountChanged?.Invoke(ConnectedClients);
             }
         }
 
@@ -281,11 +355,14 @@ namespace BinanceCopyTradingMonitor
 
             foreach (var kvp in _clients)
             {
+                // Only send to authenticated clients
+                if (!kvp.Value.IsAuthenticated) continue;
+                
                 try
                 {
-                    if (kvp.Value.State == WebSocketState.Open)
+                    if (kvp.Value.Socket.State == WebSocketState.Open)
                     {
-                        await kvp.Value.SendAsync(
+                        await kvp.Value.Socket.SendAsync(
                             new ArraySegment<byte>(buffer),
                             WebSocketMessageType.Text,
                             true,
@@ -321,11 +398,11 @@ namespace BinanceCopyTradingMonitor
                 {
                     try
                     {
-                        if (kvp.Value.State == WebSocketState.Open)
+                        if (kvp.Value.Socket.State == WebSocketState.Open)
                         {
-                            kvp.Value.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(500);
+                            kvp.Value.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Server shutting down", CancellationToken.None).Wait(500);
                         }
-                        kvp.Value.Dispose();
+                        kvp.Value.Socket.Dispose();
                     }
                     catch { }
                 }
