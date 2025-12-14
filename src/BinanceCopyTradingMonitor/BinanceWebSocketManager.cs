@@ -27,6 +27,7 @@ namespace BinanceCopyTradingMonitor
         public event Action<int>? OnClientCountChanged;
         public event Action? OnRefreshRequested;
         public event Action? OnRestartRequested;
+        public event Action<string>? OnAnalyzeRequested;
 
         public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
@@ -123,7 +124,6 @@ namespace BinanceCopyTradingMonitor
                 var wsContext = await context.AcceptWebSocketAsync(null);
                 webSocket = wsContext.WebSocket;
                 
-                // If no auth required, mark as authenticated immediately
                 bool isAuthenticated = !RequiresAuth;
                 _clients[clientId] = (webSocket, isAuthenticated);
                 
@@ -131,7 +131,6 @@ namespace BinanceCopyTradingMonitor
 
                 if (RequiresAuth)
                 {
-                    // Wait for authentication (5 second timeout)
                     var authSuccess = await WaitForAuthenticationAsync(webSocket, clientId, cancellationToken);
                     
                     if (!authSuccess)
@@ -199,18 +198,15 @@ namespace BinanceCopyTradingMonitor
                 {
                     _clients[clientId] = (webSocket, true);
                     
-                    // Send auth success response
                     await SendToClientAsync(webSocket, new { type = "auth_success" }, cancellationToken);
                     return true;
                 }
                 
-                // Send auth failed response
                 await SendToClientAsync(webSocket, new { type = "auth_failed", reason = "Invalid token" }, cancellationToken);
                 return false;
             }
             catch (OperationCanceledException)
             {
-                // Timeout - send auth failed
                 try
                 {
                     await SendToClientAsync(webSocket, new { type = "auth_failed", reason = "Timeout" }, CancellationToken.None);
@@ -248,9 +244,16 @@ namespace BinanceCopyTradingMonitor
                         break;
                         
                     case "restart":
-                        Log("Restart command received - restarting application");
+                        Log("Restart command received");
                         await SendToClientAsync(webSocket, new { type = "restart_started", timestamp = DateTime.UtcNow }, cancellationToken);
                         OnRestartRequested?.Invoke();
+                        break;
+                        
+                    case "analyze":
+                        var symbol = (string?)json?.symbol ?? "";
+                        Log($"Analyze request for {symbol}");
+                        await SendToClientAsync(webSocket, new { type = "analysis_started", symbol = symbol }, cancellationToken);
+                        OnAnalyzeRequested?.Invoke(symbol);
                         break;
                 }
             }
@@ -326,7 +329,6 @@ namespace BinanceCopyTradingMonitor
 
             foreach (var kvp in _clients)
             {
-                // Only send to authenticated clients
                 if (!kvp.Value.IsAuthenticated) continue;
                 
                 try
@@ -366,10 +368,10 @@ namespace BinanceCopyTradingMonitor
         {
             var json = JsonConvert.SerializeObject(message);
             var buffer = Encoding.UTF8.GetBytes(json);
+            var sentCount = 0;
 
             foreach (var kvp in _clients)
             {
-                // Only send to authenticated clients
                 if (!kvp.Value.IsAuthenticated) continue;
                 
                 try
@@ -381,10 +383,14 @@ namespace BinanceCopyTradingMonitor
                             WebSocketMessageType.Text,
                             true,
                             CancellationToken.None);
+                        sentCount++;
                     }
                 }
                 catch { }
             }
+            
+            if (json.Contains("analysis_result"))
+                Log($"Broadcast analysis_result to {sentCount} clients");
         }
 
         public async Task BroadcastAlertAsync(string title, string message, bool isProfit)

@@ -11,8 +11,9 @@ namespace BinanceCopyTradingMonitor
     public class AppConfig
     {
         public string? WebSocketToken { get; set; }
-        public decimal QuickGainerThreshold { get; set; } = 10m;  // Alert when grown 10%
-        public decimal ExplosionThreshold { get; set; } = 20m;    // Alert when grown 20%
+        public string? OpenAiApiKey { get; set; }
+        public decimal QuickGainerThreshold { get; set; } = 10m;
+        public decimal ExplosionThreshold { get; set; } = 20m;
     }
     
     public class CopyTradingScraperApp : Form
@@ -22,7 +23,9 @@ namespace BinanceCopyTradingMonitor
         private BinanceWebSocketManager? _webSocketServer;
         private PositionTracker? _positionTracker;
         private PositionWidget? _positionWidget;
+        private CoinAnalysisService? _analysisService;
         private AppConfig? _config;
+        private List<ScrapedPosition> _lastPositions = new();
         private ToolStripMenuItem? _toggleWidgetItem;
         private ToolStripMenuItem? _toggleConsoleItem;
 
@@ -30,7 +33,6 @@ namespace BinanceCopyTradingMonitor
 
         public CopyTradingScraperApp()
         {
-            // Completely hidden form - only tray icon
             this.WindowState = FormWindowState.Minimized;
             this.ShowInTaskbar = false;
             this.Opacity = 0;
@@ -46,7 +48,6 @@ namespace BinanceCopyTradingMonitor
         
         private void InitializeTray()
         {
-            // Use a chart icon from shell32.dll (icon index 21 = chart/graph)
             try
             {
                 var iconHandle = ExtractIcon(IntPtr.Zero, "shell32.dll", 21);
@@ -80,22 +81,13 @@ namespace BinanceCopyTradingMonitor
         private async void RestartScraper()
         {
             Console.WriteLine("[RESTART] Restarting scraper (Chrome only)...");
+            try { _scraper?.Stop(); } catch { }
             
-            // Stop current scraper
-            try
-            {
-                _scraper?.Stop();
-                Console.WriteLine("[RESTART] Scraper stopped");
-            }
-            catch { }
-            
-            // Kill all Chrome processes
             try
             {
                 var processes = System.Diagnostics.Process.GetProcesses()
                     .Where(p => p.ProcessName.ToLower().Contains("chrom"))
                     .ToList();
-                    
                 foreach (var process in processes)
                 {
                     try { process.Kill(); } catch { }
@@ -105,11 +97,51 @@ namespace BinanceCopyTradingMonitor
             catch { }
             
             await Task.Delay(1000);
-            
-            // Start fresh scraper
-            Console.WriteLine("[RESTART] Starting fresh scraper...");
             await StartScraperAsync();
             Console.WriteLine("[RESTART] Scraper restarted!");
+        }
+        
+        private async Task AnalyzePositionAsync(string symbol)
+        {
+            if (_analysisService == null || _webSocketServer == null)
+            {
+                Console.WriteLine("[ANALYZE] Service not initialized");
+                return;
+            }
+            
+            var position = _lastPositions.FirstOrDefault(p => 
+                p.Symbol.Equals(symbol, StringComparison.OrdinalIgnoreCase) ||
+                p.Symbol.Contains(symbol, StringComparison.OrdinalIgnoreCase));
+            
+            if (position == null)
+            {
+                await _webSocketServer.BroadcastMessageAsync(new
+                {
+                    type = "analysis_result",
+                    symbol = symbol,
+                    recommendation = "ERROR",
+                    confidence = 0,
+                    summary = $"Position '{symbol}' not found"
+                });
+                return;
+            }
+            
+            Console.WriteLine($"[ANALYZE] Analyzing {position.Symbol}...");
+            var result = await _analysisService.AnalyzePositionAsync(position);
+            
+            await _webSocketServer.BroadcastMessageAsync(new
+            {
+                type = "analysis_result",
+                symbol = result.Symbol,
+                recommendation = result.Recommendation,
+                confidence = result.Confidence,
+                summary = result.Summary,
+                trader = position.Trader,
+                currentPnl = $"{position.PnL:+0.00;-0.00} {position.PnLCurrency}",
+                currentPnlPercent = $"{position.PnLPercentage:+0.00;-0.00}%"
+            });
+            
+            Console.WriteLine($"[ANALYZE] Result: {result.Recommendation} ({result.Confidence}%)");
         }
         
         private void ToggleWidget()
@@ -165,17 +197,19 @@ namespace BinanceCopyTradingMonitor
                     
                     if (!string.IsNullOrEmpty(_config?.WebSocketToken))
                         Console.WriteLine("[CONFIG] Token authentication enabled");
+                    if (!string.IsNullOrEmpty(_config?.OpenAiApiKey))
+                        Console.WriteLine("[CONFIG] OpenAI API key configured");
                         
-                    Console.WriteLine($"[CONFIG] Quick Gainer alert at: {_config?.QuickGainerThreshold}% growth");
-                    Console.WriteLine($"[CONFIG] Explosion alert at: {_config?.ExplosionThreshold}% growth");
+                    Console.WriteLine($"[CONFIG] Quick Gainer: {_config?.QuickGainerThreshold}% | Explosion: {_config?.ExplosionThreshold}%");
                 }
                 else
                 {
                     _config = new AppConfig();
-                    Console.WriteLine("[CONFIG] No config.json found - using defaults");
-                    Console.WriteLine($"[CONFIG] Quick Gainer alert at: {_config.QuickGainerThreshold}% growth");
-                    Console.WriteLine($"[CONFIG] Explosion alert at: {_config.ExplosionThreshold}% growth");
+                    Console.WriteLine("[CONFIG] No config.json - using defaults");
                 }
+                
+                _analysisService = new CoinAnalysisService(_config?.OpenAiApiKey);
+                _analysisService.OnLog += (msg) => Console.WriteLine(msg);
             }
             catch (Exception ex)
             {
@@ -196,10 +230,8 @@ namespace BinanceCopyTradingMonitor
             
             _positionTracker.OnQuickGainer += async (alert) =>
             {
-                // Windows notification
                 ShowQuickGainerNotification(alert);
                 
-                // WebSocket broadcast
                 if (_webSocketServer != null)
                 {
                     await _webSocketServer.BroadcastMessageAsync(new
@@ -262,6 +294,12 @@ namespace BinanceCopyTradingMonitor
                     else
                         RestartScraper();
                 };
+                
+                _webSocketServer.OnAnalyzeRequested += async (symbol) =>
+                {
+                    Console.WriteLine($"[ANALYZE] Request for {symbol}");
+                    await AnalyzePositionAsync(symbol);
+                };
 
                 bool started = await _webSocketServer.StartAsync();
                 
@@ -317,7 +355,7 @@ namespace BinanceCopyTradingMonitor
 
         private void DisplayScrapedPositions(List<ScrapedPosition> positions)
         {
-            // Update position tracker (detects quick gainers)
+            _lastPositions = positions;
             _positionTracker?.UpdatePositions(positions);
 
             foreach (var pos in positions)

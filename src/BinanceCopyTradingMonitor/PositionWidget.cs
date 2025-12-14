@@ -16,7 +16,6 @@ namespace BinanceCopyTradingMonitor
 
         private void InitializeUI()
         {
-            // Window settings - use Sizable to get minimize button next to X
             this.Text = "Copy Trading Monitor";
             this.Size = new Size(1200, 400);
             this.StartPosition = FormStartPosition.Manual;
@@ -29,7 +28,6 @@ namespace BinanceCopyTradingMonitor
             this.MinimizeBox = true;
             this.MaximizeBox = false;
 
-            // ListView for positions
             _listView = new ListView
             {
                 Dock = DockStyle.Fill,
@@ -51,7 +49,6 @@ namespace BinanceCopyTradingMonitor
 
             this.Controls.Add(_listView);
 
-            // Summary Footer
             _summaryLabel = new Label
             {
                 Dock = DockStyle.Bottom,
@@ -75,10 +72,8 @@ namespace BinanceCopyTradingMonitor
             
             _listView.Items.Clear();
 
-            // Pure data from scraper
             foreach (var pos in positions)
             {
-                // Extract trader from Symbol (format: "Trader | XRPUSDT")
                 var parts = pos.Symbol.Split('|');
                 var trader = parts.Length > 0 ? parts[0].Trim() : "";
                 var symbol = parts.Length > 1 ? parts[1].Trim() : pos.Symbol;
@@ -95,14 +90,12 @@ namespace BinanceCopyTradingMonitor
                 _listView.Items.Add(item);
             }
 
-            // Update simple summary
             _summaryLabel.Text = $"Positions: {positions.Count}  |  {DateTime.Now:HH:mm:ss}";
             _summaryLabel.ForeColor = Color.FromArgb(255, 215, 0);
         }
 
         private void UpdatePnLColors()
         {
-            // Subtle animation (optional)
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

@@ -59,13 +59,11 @@ namespace BinanceCopyTradingMonitor
         [STAThread]
         static void Main()
         {
-            // Force console to always appear
             AllocConsole();
             
             Console.WriteLine("BINANCE COPY TRADING MONITOR - WEB SCRAPER MODE");
             Console.WriteLine($"Started: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
             
-            // Show public IP
             try
             {
                 using var client = new System.Net.Http.HttpClient();
@@ -83,7 +81,6 @@ namespace BinanceCopyTradingMonitor
                 
                 Console.WriteLine("Starting Chromium scraper mode...\n");
                 
-                // Handler for Ctrl+C
                 Console.CancelKeyPress += (s, e) =>
                 {
                     Console.WriteLine("\nCtrl+C detected! Killing Chromium...");
@@ -91,7 +88,6 @@ namespace BinanceCopyTradingMonitor
                     Environment.Exit(0);
                 };
                 
-                // Handler for crash/unhandled exception
                 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
                 {
                     Console.WriteLine("\nCRASH! Killing Chromium...");

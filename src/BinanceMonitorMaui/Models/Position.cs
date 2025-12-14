@@ -158,7 +158,7 @@ namespace BinanceMonitorMaui.Models
             PnLRaw = other.PnLRaw;
             PnLCurrency = other.PnLCurrency;
             PnLPercentage = other.PnLPercentage;
-            PnL = other.PnL; // Set PnL last since it triggers color update
+            PnL = other.PnL;
         }
     }
 
@@ -173,11 +173,16 @@ namespace BinanceMonitorMaui.Models
         public string? message { get; set; }
         public bool? isProfit { get; set; }
         
-        // Quick gainer fields
         public string? alertType { get; set; }
         public string? trader { get; set; }
         public string? symbol { get; set; }
         public decimal? pnl { get; set; }
+        
+        public string? recommendation { get; set; }
+        public int? confidence { get; set; }
+        public string? summary { get; set; }
+        public string? currentPnl { get; set; }
+        public string? currentPnlPercent { get; set; }
         public decimal? pnlPercentage { get; set; }
         public decimal? growth { get; set; }
     }
@@ -193,5 +198,16 @@ namespace BinanceMonitorMaui.Models
         public string Message { get; set; } = "";
         
         public bool IsExplosion => AlertType == "explosion";
+    }
+    
+    public class AnalysisResult
+    {
+        public string Symbol { get; set; } = "";
+        public string Recommendation { get; set; } = "";
+        public int Confidence { get; set; }
+        public string Summary { get; set; } = "";
+        public string Trader { get; set; } = "";
+        public string CurrentPnl { get; set; } = "";
+        public string CurrentPnlPercent { get; set; } = "";
     }
 }

@@ -49,6 +49,9 @@
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="models:Position">
                     <Frame Margin="0,3" Padding="12" BackgroundColor="#16213e" CornerRadius="10" BorderColor="Transparent" HasShadow="False">
+                        <Frame.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnPositionTapped" CommandParameter="{Binding Symbol}"/>
+                        </Frame.GestureRecognizers>
                         <Grid ColumnDefinitions="*,Auto">
                             <VerticalStackLayout Grid.Column="0" Spacing="2">
                                 <Label Text="{Binding Symbol}" FontAttributes="Bold" FontSize="15" TextColor="White"/>

@@ -27,6 +27,7 @@ public partial class MainPage : ContentPage
         _webSocket.OnTotalsUpdated += OnTotalsReceived;
         _webSocket.OnAlert += OnAlertReceived;
         _webSocket.OnQuickGainer += OnQuickGainerReceived;
+        _webSocket.OnAnalysisResult += OnAnalysisResultReceived;
 
         Dispatcher.Dispatch(async () => await ConnectToSavedUrl());
     }
@@ -44,7 +45,6 @@ public partial class MainPage : ContentPage
                 StatusLabel.Text = statusText;
                 StatusLabel.TextColor = Color.FromArgb("#4ade80");
                 
-                // Start foreground service and update notification
                 StartBackgroundService();
                 UpdateServiceNotification(statusText);
             }
@@ -60,7 +60,6 @@ public partial class MainPage : ContentPage
                 TotalPnLPercentLabel.Text = "0.00%";
                 TotalPnLPercentLabel.TextColor = Colors.White;
                 
-                // Update notification to show disconnected
                 UpdateServiceNotification(statusText);
                 
                 if (message != "Auth failed")
@@ -98,7 +97,6 @@ public partial class MainPage : ContentPage
         {
             var icon = isProfit ? "💰" : "⚠️";
             
-            // Only show notification bar, no popup
             var notification = new NotificationRequest
             {
                 NotificationId = _notificationId++,
@@ -115,7 +113,6 @@ public partial class MainPage : ContentPage
     {
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            // Check quiet hours (00:00 - 08:00)
             var hour = DateTime.Now.Hour;
             var isQuietHours = hour >= 0 && hour < 8;
             
@@ -145,7 +142,6 @@ public partial class MainPage : ContentPage
             
             await LocalNotificationCenter.Current.Show(notification);
             
-            // Only wake screen outside quiet hours
             if (!isQuietHours)
             {
                 WakeScreen();
@@ -167,7 +163,7 @@ public partial class MainPage : ContentPage
                     Android.OS.WakeLockFlags.ScreenBright | 
                     Android.OS.WakeLockFlags.AcquireCausesWakeup,
                     "BinanceMonitor::AlertWake");
-                wakeLock?.Acquire(5000); // Wake for 5 seconds
+                wakeLock?.Acquire(5000);
             }
         }
         catch { }
@@ -319,7 +315,6 @@ public partial class MainPage : ContentPage
         
         await _webSocket.SendRefreshAsync();
         
-        // Visual feedback
         var originalText = StatusLabel.Text;
         var originalColor = StatusLabel.TextColor;
         StatusLabel.Text = "Refreshing...";
@@ -350,7 +345,6 @@ public partial class MainPage : ContentPage
         
         await _webSocket.SendRestartAsync();
         
-        // Visual feedback
         StatusLabel.Text = "Restarting Chrome...";
         StatusLabel.TextColor = Color.FromArgb("#f59e0b");
         
@@ -361,5 +355,52 @@ public partial class MainPage : ContentPage
             StatusLabel.Text = "Connected";
             StatusLabel.TextColor = Color.FromArgb("#22c55e");
         }
+    }
+    
+    private async void OnPositionTapped(object? sender, TappedEventArgs e)
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        var symbol = e.Parameter as string;
+        if (string.IsNullOrEmpty(symbol)) return;
+        
+        StatusLabel.Text = $"Analyzing {symbol}...";
+        StatusLabel.TextColor = Color.FromArgb("#a855f7");
+        
+        await _webSocket.SendAnalyzeAsync(symbol);
+    }
+    
+    private void OnAnalysisResultReceived(AnalysisResult result)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            StatusLabel.Text = "Connected";
+            StatusLabel.TextColor = Color.FromArgb("#22c55e");
+            
+            var rec = result.Recommendation.ToUpper();
+            var icon = rec switch
+            {
+                "SELL" or "CLOSE" => "🔴",
+                "STAY" or "HOLD" => "🟢",
+                "BUY" => "💚",
+                _ => "🤖"
+            };
+            
+            var confidenceBar = new string('█', result.Confidence / 10) + new string('░', 10 - result.Confidence / 10);
+            
+            var displayRec = rec == "CLOSE" ? "SELL" : rec;
+            
+            await DisplayAlert(
+                $"{icon} {result.Symbol}",
+                $"{result.Trader} | {result.CurrentPnlPercent}\n\n" +
+                $"{displayRec} ({result.Confidence}%)\n\n" +
+                $"{result.Summary}",
+                "OK"
+            );
+        });
     }
 }

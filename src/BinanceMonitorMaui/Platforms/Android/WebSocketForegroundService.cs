@@ -13,7 +13,6 @@ public class WebSocketForegroundService : Service
     private const string ChannelName = "WebSocket Connection";
     private PowerManager.WakeLock? _wakeLock;
     
-    // Static instance for updating notification from outside
     public static WebSocketForegroundService? Instance { get; private set; }
 
     public override IBinder? OnBind(Intent? intent) => null;
@@ -22,7 +21,6 @@ public class WebSocketForegroundService : Service
     {
         Instance = this;
         
-        // Check if status was passed in the intent
         var status = intent?.GetStringExtra("status") ?? "Connecting...";
         
         CreateNotificationChannel();
@@ -87,7 +85,6 @@ public class WebSocketForegroundService : Service
         notificationManager?.Notify(NotificationId, notification);
     }
     
-    // Static helper to update from anywhere
     public static void UpdateNotificationStatus(string status)
     {
         Instance?.UpdateStatus(status);

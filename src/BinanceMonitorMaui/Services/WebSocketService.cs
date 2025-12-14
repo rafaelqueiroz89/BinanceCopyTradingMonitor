@@ -15,6 +15,7 @@ namespace BinanceMonitorMaui.Services
         public event Action<bool, string>? OnConnectionStatusChanged;
         public event Action<string, string, bool>? OnAlert;
         public event Action<QuickGainerAlert>? OnQuickGainer;
+        public event Action<AnalysisResult>? OnAnalysisResult;
 
         public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
@@ -28,7 +29,6 @@ namespace BinanceMonitorMaui.Services
                 var uri = new Uri(url);
                 await _webSocket.ConnectAsync(uri, _cts.Token);
 
-                // If token provided, authenticate first
                 if (!string.IsNullOrEmpty(token))
                 {
                     var authSuccess = await AuthenticateAsync(token);
@@ -52,12 +52,10 @@ namespace BinanceMonitorMaui.Services
         {
             try
             {
-                // Send auth message
                 var authMessage = JsonSerializer.Serialize(new { type = "auth", token = token });
                 var buffer = Encoding.UTF8.GetBytes(authMessage);
                 await _webSocket!.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts!.Token);
 
-                // Wait for response (5 second timeout)
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, timeoutCts.Token);
 
@@ -155,9 +153,27 @@ namespace BinanceMonitorMaui.Services
                         };
                         OnQuickGainer?.Invoke(alert);
                         break;
+                        
+                    case "analysis_result":
+                        var result = new AnalysisResult
+                        {
+                            Symbol = message.symbol ?? "",
+                            Recommendation = message.recommendation ?? "",
+                            Confidence = (int)(message.confidence ?? 0),
+                            Summary = message.summary ?? "",
+                            Trader = message.trader ?? "",
+                            CurrentPnl = message.currentPnl ?? "",
+                            CurrentPnlPercent = message.currentPnlPercent ?? ""
+                        };
+                        System.Diagnostics.Debug.WriteLine($"[WS] Got analysis: {result.Symbol} = {result.Recommendation}");
+                        OnAnalysisResult?.Invoke(result);
+                        break;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WS] ProcessMessage error: {ex.Message}");
+            }
         }
 
         public async Task DisconnectAsync()
@@ -196,6 +212,19 @@ namespace BinanceMonitorMaui.Services
                 if (_webSocket?.State != WebSocketState.Open) return;
                 
                 var message = System.Text.Json.JsonSerializer.Serialize(new { type = "restart" });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendAnalyzeAsync(string symbol)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "analyze", symbol = symbol });
                 var buffer = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
             }

@@ -10,18 +10,13 @@ using AngleSharp.Html.Parser;
 
 namespace BinanceCopyTradingMonitor
 {
-    /// <summary>
-    /// Web Scraper for Binance Copy Trading using PuppeteerSharp
-    /// Reads directly from the Binance UI
-    /// </summary>
     public class BinanceScraperManager : IDisposable
     {
         private IBrowser? _browser;
         private IPage? _page;
         private bool _isRunning;
         
-        // One tab (Page) for each trader - thread-safe for parallel operations
-        private ConcurrentDictionary<string, IPage> _traderPages = new ConcurrentDictionary<string, IPage>();
+        private ConcurrentDictionary<string, IPage> _traderPages = new();
 
         public event Action<List<ScrapedPosition>>? OnPositionsUpdated;
         public event Action<string>? OnError;
@@ -51,13 +46,9 @@ namespace BinanceCopyTradingMonitor
             {
                 Log("Starting Web Scraper (PuppeteerSharp)");
 
-                // Kill Chromium before starting
                 KillAllChromiumProcesses();
-
-                // Clean old screenshots
                 CleanupScreenshots();
 
-                // Download Chromium if necessary
                 var browserFetcher = new BrowserFetcher();
                 var installedBrowser = browserFetcher.GetInstalledBrowsers().FirstOrDefault();
                 
@@ -72,8 +63,6 @@ namespace BinanceCopyTradingMonitor
                     Log("Chromium found locally");
                 }
 
-                // Open browser
-                // PHASE 1: Visible browser for login
                 _browser = await Puppeteer.LaunchAsync(new LaunchOptions
                 {
                     Headless = false,
@@ -91,13 +80,12 @@ namespace BinanceCopyTradingMonitor
                 await _page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
                     new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
 
-                // Auto-detect login status - wait for traders to appear
                 Log("Waiting for login/traders to appear...");
                 bool tradersFound = false;
                 int waitAttempts = 0;
                 const int maxWaitMinutes = 5;
                 
-                while (!tradersFound && waitAttempts < maxWaitMinutes * 12) // Check every 5 seconds for 5 minutes
+                while (!tradersFound && waitAttempts < maxWaitMinutes * 12)
                 {
                     try
                     {
@@ -113,7 +101,7 @@ namespace BinanceCopyTradingMonitor
                         else
                         {
                             waitAttempts++;
-                            if (waitAttempts % 6 == 0) // Every 30 seconds
+                            if (waitAttempts % 6 == 0)
                             {
                                 Log($"Still waiting for login... ({waitAttempts * 5 / 60}m {(waitAttempts * 5) % 60}s)");
                             }
@@ -135,7 +123,6 @@ namespace BinanceCopyTradingMonitor
                 
                 await Task.Delay(2000);
 
-                // Identify traders on page
                 var traders = await IdentifyTradersAsync();
                 
                 if (traders.Count == 0)
@@ -155,7 +142,6 @@ namespace BinanceCopyTradingMonitor
 
                 Log($"{traders.Count} traders found: {string.Join(", ", traders.Select(t => t.Name))}");
 
-                // Open 1 tab for each trader
                 Log("Opening 1 tab for each trader...");
                 await OpenBrowsersForEachTraderAsync(traders);
 
@@ -196,15 +182,13 @@ namespace BinanceCopyTradingMonitor
                 {
                     _cycleCount++;
                     
-                    // Check if restart was requested
                     if (_restartRequested)
                     {
                         _restartRequested = false;
                         OnRestartRequested?.Invoke();
-                        return; // Exit loop, app will restart
+                        return;
                     }
                     
-                    // Check if refresh was requested
                     if (_refreshRequested)
                     {
                         _refreshRequested = false;
@@ -212,7 +196,6 @@ namespace BinanceCopyTradingMonitor
                         _lastAutoRefresh = DateTime.Now;
                     }
                     
-                    // Auto-refresh every 10 minutes
                     if ((DateTime.Now - _lastAutoRefresh).TotalMinutes >= AUTO_REFRESH_MINUTES)
                     {
                         Log($"Auto-refresh triggered (every {AUTO_REFRESH_MINUTES} minutes)");
@@ -227,7 +210,6 @@ namespace BinanceCopyTradingMonitor
                         OnPositionsUpdated?.Invoke(positions);
                     }
 
-                    // Empty recycle bin every 20 cycles (~20 seconds)
                     if (_cycleCount % 20 == 0)
                     {
                         EmptyRecycleBin();
@@ -272,7 +254,6 @@ namespace BinanceCopyTradingMonitor
                     Timeout = 30000 
                 });
                 
-                // Retry expand with increasing delays
                 bool clicked = false;
                 for (int attempt = 1; attempt <= 3 && !clicked; attempt++)
                 {
@@ -320,7 +301,6 @@ namespace BinanceCopyTradingMonitor
                     return new List<ScrapedTraderData>();
                 }
                 
-                // Verify element exists
                 var hasElement = await _page.EvaluateExpressionAsync<bool>("!!document.querySelector('.copy-mgmt-wrap')");
                 
                 if (!hasElement)
@@ -329,7 +309,6 @@ namespace BinanceCopyTradingMonitor
                     return new List<ScrapedTraderData>();
                 }
 
-                // Direct extraction - always works!
                 var names = await _page.EvaluateExpressionAsync<string[]>(
                     @"Array.from(document.querySelectorAll('.t-subtitle4.text-PrimaryText.cursor-pointer')).map(el => el.textContent.trim())"
                 );
@@ -360,7 +339,6 @@ namespace BinanceCopyTradingMonitor
 
             Log($"Opening {traders.Count} trader tabs in PARALLEL...");
             
-            // Open all tabs in parallel
             var tasks = traders.Select(trader => OpenSingleTraderTabAsync(trader));
             await Task.WhenAll(tasks);
             
@@ -373,14 +351,12 @@ namespace BinanceCopyTradingMonitor
             {
                 Log($"Opening tab for {trader.Name}...");
 
-                // Open new tab in the same browser
                 var page = await _browser!.NewPageAsync();
                 await page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
                     new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
 
                 await Task.Delay(2000);
 
-                // Click "Expand Details" for this trader by NAME (not index!)
                 var clicked = await page.EvaluateFunctionAsync<bool>(@"(targetName) => {
                     const main = document.querySelector('.copy-mgmt-wrap');
                     if (!main) return false;
@@ -411,18 +387,15 @@ namespace BinanceCopyTradingMonitor
                     return;
                 }
 
-                // Wait for table to appear
                 try
                 {
                     await page.WaitForSelectorAsync("table", new WaitForSelectorOptions { Timeout = 10000 });
                     
-                    // Verify rows exist
                     var rowCount = await page.EvaluateExpressionAsync<int>(
                         "document.querySelectorAll('tbody.bn-web-table-tbody tr:not(.bn-web-table-measure-row)').length"
                     );
                     Log($"{trader.Name}: {rowCount} rows - READY!");
                     
-                    // Save tab for this trader
                     _traderPages[trader.Name] = page;
                 }
                 catch (Exception ex)
@@ -551,7 +524,6 @@ namespace BinanceCopyTradingMonitor
                 var parser = new HtmlParser();
                 var document = parser.ParseDocument(html);
 
-                // Find all rows in tbody, ignoring measure-row
                 var rows = document.QuerySelectorAll("tbody.bn-web-table-tbody tr")
                     .Where(row => !row.ClassList.Contains("bn-web-table-measure-row"))
                     .ToList();
@@ -565,7 +537,6 @@ namespace BinanceCopyTradingMonitor
                         continue;
                     }
 
-                    // Symbol: cell 0, inside .t-caption2
                     var symbolEl = cells[0].QuerySelector(".t-caption2");
                     if (symbolEl == null)
                     {
@@ -573,11 +544,9 @@ namespace BinanceCopyTradingMonitor
                     }
                     var symbol = symbolEl.TextContent.Trim();
 
-                    // Size: cell 1, inside .t-body3
                     var sizeEl = cells[1].QuerySelector(".t-body3");
                     var size = sizeEl?.TextContent.Trim() ?? "";
 
-                    // Margin: cell 2, inside .t-body3
                     var marginEl = cells[2].QuerySelector(".t-body3");
                     var margin = marginEl?.TextContent.Trim() ?? "";
 
@@ -703,25 +672,20 @@ namespace BinanceCopyTradingMonitor
             
             try
             {
-                // Format: "-1.10 USDT-4.80%" or "+0.13 USDT+0.15%"
                 var text = rawPnL.Replace(",", ".").Trim();
                 
-                // Find currency position (USDT, USDC, etc)
                 var currencyIndex = text.IndexOf("USDT", StringComparison.OrdinalIgnoreCase);
                 if (currencyIndex == -1) currencyIndex = text.IndexOf("USDC", StringComparison.OrdinalIgnoreCase);
                 if (currencyIndex == -1) return;
                 
-                // Extract PnL value (before currency)
                 var pnlStr = text.Substring(0, currencyIndex).Trim();
                 if (decimal.TryParse(pnlStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pnlValue))
                 {
                     PnL = pnlValue;
                 }
                 
-                // Extract currency
                 PnLCurrency = text.Substring(currencyIndex, 4);
                 
-                // Extract percentage (after currency)
                 var afterCurrency = text.Substring(currencyIndex + 4);
                 var percentIndex = afterCurrency.IndexOf('%');
                 if (percentIndex > 0)

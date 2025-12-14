@@ -14,12 +14,8 @@ namespace BinanceCopyTradingMonitor
         public decimal CurrentPnLPercentage { get; set; }
         public decimal CurrentPnL { get; set; }
         public decimal PeakPnLPercentage { get; set; }
-        
-        // Alert tracking
         public bool QuickGainerAlertSent { get; set; }
         public bool ExplosionAlertSent { get; set; }
-        
-        // Growth = how much it grew since we first saw it
         public decimal Growth => CurrentPnLPercentage - InitialPnLPercentage;
     }
 
@@ -39,9 +35,8 @@ namespace BinanceCopyTradingMonitor
         private readonly Dictionary<string, TrackedPosition> _positions = new();
         private readonly object _lock = new();
 
-        // Thresholds - purely based on growth percentage
-        public decimal QuickGainerThreshold { get; set; } = 10m; // Alert when grown 10%
-        public decimal ExplosionThreshold { get; set; } = 20m;   // Alert when grown 20%
+        public decimal QuickGainerThreshold { get; set; } = 10m;
+        public decimal ExplosionThreshold { get; set; } = 20m;
 
         public event Action<QuickGainerAlert>? OnQuickGainer;
         public event Action<string>? OnLog;
@@ -52,7 +47,6 @@ namespace BinanceCopyTradingMonitor
             {
                 var currentKeys = positions.Select(p => $"{p.Trader}:{p.Symbol}").ToHashSet();
 
-                // Remove closed positions
                 var closedKeys = _positions.Keys.Where(k => !currentKeys.Contains(k)).ToList();
                 foreach (var key in closedKeys)
                 {
@@ -60,26 +54,22 @@ namespace BinanceCopyTradingMonitor
                     Log($"Position closed: {key}");
                 }
 
-                // Update or add positions
                 foreach (var pos in positions)
                 {
                     var key = $"{pos.Trader}:{pos.Symbol}";
 
                     if (_positions.TryGetValue(key, out var tracked))
                     {
-                        // Update existing position
                         tracked.CurrentPnL = pos.PnL;
                         tracked.CurrentPnLPercentage = pos.PnLPercentage;
 
                         if (pos.PnLPercentage > tracked.PeakPnLPercentage)
                             tracked.PeakPnLPercentage = pos.PnLPercentage;
 
-                        // Check for alerts based on growth
                         CheckAlerts(tracked);
                     }
                     else
                     {
-                        // New position - start tracking
                         var newTracked = new TrackedPosition
                         {
                             Trader = pos.Trader,
@@ -92,8 +82,6 @@ namespace BinanceCopyTradingMonitor
                         };
                         _positions[key] = newTracked;
                         Log($"Tracking: {pos.Trader} | {pos.Symbol} @ {pos.PnLPercentage:+0.00;-0.00}%");
-                        
-                        // Check if position ALREADY starts high - alert immediately!
                         CheckInitialValue(newTracked);
                     }
                 }
@@ -102,10 +90,8 @@ namespace BinanceCopyTradingMonitor
 
         private void CheckInitialValue(TrackedPosition pos)
         {
-            // Check if position STARTS already high - alert immediately!
             if (pos.InitialPnLPercentage <= 0) return;
 
-            // Explosion: starts at 20%+
             if (pos.InitialPnLPercentage >= ExplosionThreshold)
             {
                 pos.ExplosionAlertSent = true;
@@ -116,7 +102,7 @@ namespace BinanceCopyTradingMonitor
                     Trader = pos.Trader,
                     Symbol = pos.Symbol,
                     CurrentPnLPercentage = pos.CurrentPnLPercentage,
-                    Growth = pos.InitialPnLPercentage, // Started this high!
+                    Growth = pos.InitialPnLPercentage,
                     PnL = pos.CurrentPnL,
                     AlertType = "explosion",
                     Message = $"🚀 EXPLOSION! {pos.Symbol} already at {pos.CurrentPnLPercentage:+0.00}%!"
@@ -124,7 +110,6 @@ namespace BinanceCopyTradingMonitor
                 Log(alert.Message);
                 OnQuickGainer?.Invoke(alert);
             }
-            // Quick gainer: starts at 10%+
             else if (pos.InitialPnLPercentage >= QuickGainerThreshold)
             {
                 pos.QuickGainerAlertSent = true;
@@ -134,7 +119,7 @@ namespace BinanceCopyTradingMonitor
                     Trader = pos.Trader,
                     Symbol = pos.Symbol,
                     CurrentPnLPercentage = pos.CurrentPnLPercentage,
-                    Growth = pos.InitialPnLPercentage, // Started this high!
+                    Growth = pos.InitialPnLPercentage,
                     PnL = pos.CurrentPnL,
                     AlertType = "quick_gainer",
                     Message = $"🔥 Hot entry! {pos.Symbol} already at {pos.CurrentPnLPercentage:+0.00}%!"
@@ -146,10 +131,8 @@ namespace BinanceCopyTradingMonitor
 
         private void CheckAlerts(TrackedPosition pos)
         {
-            // Only alert on positive growth (position is gaining)
             if (pos.Growth <= 0) return;
 
-            // Explosion alert: grown 20%+ since we started tracking
             if (!pos.ExplosionAlertSent && pos.Growth >= ExplosionThreshold)
             {
                 pos.ExplosionAlertSent = true;
@@ -168,7 +151,6 @@ namespace BinanceCopyTradingMonitor
                 Log(alert.Message);
                 OnQuickGainer?.Invoke(alert);
             }
-            // Quick gainer alert: grown 10%+ since we started tracking
             else if (!pos.QuickGainerAlertSent && pos.Growth >= QuickGainerThreshold)
             {
                 pos.QuickGainerAlertSent = true;
