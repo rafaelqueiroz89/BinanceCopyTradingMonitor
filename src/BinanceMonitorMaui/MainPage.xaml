@@ -7,6 +7,8 @@
              BackgroundColor="#1a1a2e">
 
     <ContentPage.ToolbarItems>
+        <ToolbarItem Text="🔄" Clicked="OnRefreshClicked" />
+        <ToolbarItem Text="🔌" Clicked="OnRestartClicked" />
         <ToolbarItem Text="⚙" Clicked="OnSettingsClicked" />
     </ContentPage.ToolbarItems>
 

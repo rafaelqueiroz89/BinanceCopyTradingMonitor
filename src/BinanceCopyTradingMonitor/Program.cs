@@ -10,6 +10,52 @@ namespace BinanceCopyTradingMonitor
         [DllImport("kernel32.dll")]
         static extern bool AllocConsole();
         
+        [DllImport("kernel32.dll")]
+        static extern bool FreeConsole();
+        
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetConsoleWindow();
+        
+        [DllImport("user32.dll")]
+        static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        
+        private const int SW_HIDE = 0;
+        private const int SW_SHOW = 5;
+        
+        private static bool _consoleVisible = true;
+        
+        public static void ToggleConsole()
+        {
+            var handle = GetConsoleWindow();
+            if (handle != IntPtr.Zero)
+            {
+                _consoleVisible = !_consoleVisible;
+                ShowWindow(handle, _consoleVisible ? SW_SHOW : SW_HIDE);
+            }
+        }
+        
+        public static void HideConsole()
+        {
+            var handle = GetConsoleWindow();
+            if (handle != IntPtr.Zero)
+            {
+                _consoleVisible = false;
+                ShowWindow(handle, SW_HIDE);
+            }
+        }
+        
+        public static void ShowConsole()
+        {
+            var handle = GetConsoleWindow();
+            if (handle != IntPtr.Zero)
+            {
+                _consoleVisible = true;
+                ShowWindow(handle, SW_SHOW);
+            }
+        }
+        
+        public static bool IsConsoleVisible => _consoleVisible;
+        
         [STAThread]
         static void Main()
         {

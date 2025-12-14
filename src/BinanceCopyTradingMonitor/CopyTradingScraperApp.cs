@@ -21,68 +21,120 @@ namespace BinanceCopyTradingMonitor
         private BinanceScraperManager? _scraper;
         private BinanceWebSocketManager? _webSocketServer;
         private PositionTracker? _positionTracker;
-        private TextBox _textBox = new TextBox();
-        private Label _statusLabel = new Label();
-        private Label _wsStatusLabel = new Label();
         private PositionWidget? _positionWidget;
         private AppConfig? _config;
+        private ToolStripMenuItem? _toggleWidgetItem;
+        private ToolStripMenuItem? _toggleConsoleItem;
 
         private const int WEBSOCKET_PORT = 8765;
 
         public CopyTradingScraperApp()
         {
+            // Completely hidden form - only tray icon
             this.WindowState = FormWindowState.Minimized;
             this.ShowInTaskbar = false;
+            this.Opacity = 0;
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.Size = new Size(1, 1);
             
-            InitializeUI();
+            InitializeTray();
             _ = StartAsync();
         }
 
-        private void InitializeUI()
+        [System.Runtime.InteropServices.DllImport("shell32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
+        static extern IntPtr ExtractIcon(IntPtr hInst, string lpszExeFileName, int nIconIndex);
+        
+        private void InitializeTray()
         {
-            this.Text = "Copy Trading Monitor - Scraper Mode";
-            this.Size = new Size(850, 400);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.BackColor = Color.FromArgb(20, 20, 30);
-            this.TopMost = true;
-
-            _wsStatusLabel.Text = "WebSocket: Starting...";
-            _wsStatusLabel.Dock = DockStyle.Top;
-            _wsStatusLabel.Height = 25;
-            _wsStatusLabel.Font = new Font("Segoe UI", 9, FontStyle.Bold);
-            _wsStatusLabel.ForeColor = Color.FromArgb(100, 200, 255);
-            _wsStatusLabel.BackColor = Color.FromArgb(25, 25, 35);
-            _wsStatusLabel.TextAlign = ContentAlignment.MiddleCenter;
-            this.Controls.Add(_wsStatusLabel);
-
-            _statusLabel.Text = "Initializing scraper...";
-            _statusLabel.Dock = DockStyle.Top;
-            _statusLabel.Height = 40;
-            _statusLabel.Font = new Font("Segoe UI", 12, FontStyle.Bold);
-            _statusLabel.ForeColor = Color.White;
-            _statusLabel.BackColor = Color.FromArgb(30, 30, 45);
-            _statusLabel.TextAlign = ContentAlignment.MiddleCenter;
-            this.Controls.Add(_statusLabel);
-
-            _textBox.Multiline = true;
-            _textBox.Dock = DockStyle.Fill;
-            _textBox.Font = new Font("Consolas", 10);
-            _textBox.BackColor = Color.FromArgb(25, 25, 40);
-            _textBox.ForeColor = Color.White;
-            _textBox.ReadOnly = true;
-            _textBox.ScrollBars = ScrollBars.Vertical;
-            _textBox.BorderStyle = BorderStyle.None;
-            this.Controls.Add(_textBox);
-
-            _trayIcon.Icon = SystemIcons.Information;
+            // Use a chart icon from shell32.dll (icon index 21 = chart/graph)
+            try
+            {
+                var iconHandle = ExtractIcon(IntPtr.Zero, "shell32.dll", 21);
+                if (iconHandle != IntPtr.Zero)
+                    _trayIcon.Icon = Icon.FromHandle(iconHandle);
+                else
+                    _trayIcon.Icon = SystemIcons.Application;
+            }
+            catch { _trayIcon.Icon = SystemIcons.Application; }
+            
             _trayIcon.Text = "Copy Trading Monitor";
             _trayIcon.Visible = true;
 
             var menu = new ContextMenuStrip();
-            menu.Items.Add("Show", null, (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; });
+            
+            _toggleWidgetItem = new ToolStripMenuItem("Hide Positions", null, (s, e) => ToggleWidget());
+            _toggleConsoleItem = new ToolStripMenuItem("Hide Console", null, (s, e) => ToggleConsole());
+            
+            menu.Items.Add(_toggleWidgetItem);
+            menu.Items.Add(_toggleConsoleItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Refresh Pages", null, (s, e) => { _scraper?.RequestRefresh(); });
+            menu.Items.Add("🔄 Restart Chrome", null, (s, e) => RestartScraper());
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Exit", null, (s, e) => { Application.Exit(); });
+            
             _trayIcon.ContextMenuStrip = menu;
-            _trayIcon.DoubleClick += (s, e) => { this.Show(); this.WindowState = FormWindowState.Normal; };
+            _trayIcon.DoubleClick += (s, e) => ToggleWidget();
+        }
+        
+        private async void RestartScraper()
+        {
+            Console.WriteLine("[RESTART] Restarting scraper (Chrome only)...");
+            
+            // Stop current scraper
+            try
+            {
+                _scraper?.Stop();
+                Console.WriteLine("[RESTART] Scraper stopped");
+            }
+            catch { }
+            
+            // Kill all Chrome processes
+            try
+            {
+                var processes = System.Diagnostics.Process.GetProcesses()
+                    .Where(p => p.ProcessName.ToLower().Contains("chrom"))
+                    .ToList();
+                    
+                foreach (var process in processes)
+                {
+                    try { process.Kill(); } catch { }
+                }
+                Console.WriteLine($"[RESTART] Killed {processes.Count} Chrome processes");
+            }
+            catch { }
+            
+            await Task.Delay(1000);
+            
+            // Start fresh scraper
+            Console.WriteLine("[RESTART] Starting fresh scraper...");
+            await StartScraperAsync();
+            Console.WriteLine("[RESTART] Scraper restarted!");
+        }
+        
+        private void ToggleWidget()
+        {
+            if (_positionWidget != null && !_positionWidget.IsDisposed)
+            {
+                if (_positionWidget.Visible)
+                {
+                    _positionWidget.Hide();
+                    if (_toggleWidgetItem != null) _toggleWidgetItem.Text = "Show Positions";
+                }
+                else
+                {
+                    _positionWidget.Show();
+                    _positionWidget.BringToFront();
+                    if (_toggleWidgetItem != null) _toggleWidgetItem.Text = "Hide Positions";
+                }
+            }
+        }
+        
+        private void ToggleConsole()
+        {
+            Program.ToggleConsole();
+            if (_toggleConsoleItem != null)
+                _toggleConsoleItem.Text = Program.IsConsoleVisible ? "Hide Console" : "Show Console";
         }
 
         private async System.Threading.Tasks.Task StartAsync()
@@ -183,21 +235,32 @@ namespace BinanceCopyTradingMonitor
         {
             try
             {
-                UpdateWsStatus("🔌 Starting WebSocket server...");
+                Console.WriteLine("🔌 Starting WebSocket server...");
                 
                 _webSocketServer = new BinanceWebSocketManager(WEBSOCKET_PORT, _config?.WebSocketToken);
 
                 _webSocketServer.OnLog += (msg) => Console.WriteLine(msg);
-                _webSocketServer.OnError += (error) => Console.WriteLine($"[WS ERROR] {error}");
+                _webSocketServer.OnError += (error) => Console.WriteLine(error);
 
                 _webSocketServer.OnClientCountChanged += (count) =>
                 {
                     var authStatus = _webSocketServer.RequiresAuth ? " 🔒" : "";
-                    var msg = $"WebSocket:{authStatus} port {WEBSOCKET_PORT} - {count} clients";
+                    Console.WriteLine($"WebSocket:{authStatus} port {WEBSOCKET_PORT} - {count} clients");
+                };
+
+                _webSocketServer.OnRefreshRequested += () =>
+                {
+                    Console.WriteLine("[REFRESH] Command received from mobile app");
+                    _scraper?.RequestRefresh();
+                };
+                
+                _webSocketServer.OnRestartRequested += () =>
+                {
+                    Console.WriteLine("[RESTART] Command received from mobile app");
                     if (this.InvokeRequired)
-                        this.Invoke(new Action(() => UpdateWsStatus(msg)));
+                        this.Invoke(new Action(() => RestartScraper()));
                     else
-                        UpdateWsStatus(msg);
+                        RestartScraper();
                 };
 
                 bool started = await _webSocketServer.StartAsync();
@@ -205,16 +268,16 @@ namespace BinanceCopyTradingMonitor
                 if (started)
                 {
                     var authStatus = _webSocketServer.RequiresAuth ? " 🔒" : "";
-                    UpdateWsStatus($"WebSocket:{authStatus} port {WEBSOCKET_PORT} - 0 clients");
+                    Console.WriteLine($"WebSocket:{authStatus} port {WEBSOCKET_PORT} ready");
                 }
                 else
                 {
-                    UpdateWsStatus("WebSocket server failed to start");
+                    Console.WriteLine("WebSocket server failed to start");
                 }
             }
             catch (Exception ex)
             {
-                UpdateWsStatus($"WebSocket error: {ex.Message}");
+                Console.WriteLine($"WebSocket error: {ex.Message}");
             }
         }
 
@@ -222,17 +285,9 @@ namespace BinanceCopyTradingMonitor
         {
             try
             {
-                UpdateStatus("Initializing Chromium...");
-                
                 _scraper = new BinanceScraperManager();
 
-                _scraper.OnLog += (msg) =>
-                {
-                    if (this.InvokeRequired)
-                        this.Invoke(new Action(() => UpdateStatus(msg)));
-                    else
-                        UpdateStatus(msg);
-                };
+                _scraper.OnLog += (msg) => Console.WriteLine(msg);
 
                 _scraper.OnPositionsUpdated += (positions) =>
                 {
@@ -244,31 +299,20 @@ namespace BinanceCopyTradingMonitor
 
                 _scraper.OnError += (error) =>
                 {
-                    MessageBox.Show(error, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine($"[ERROR] {error}");
                 };
 
-                UpdateStatus("Downloading Chromium (if necessary)...");
                 bool started = await _scraper.StartAsync();
 
                 if (!started)
                 {
-                    MessageBox.Show("Failed to start scraper!", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    Console.WriteLine("Failed to start scraper!");
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error: {ex.Message}\n\nStack: {ex.StackTrace}", "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Console.WriteLine($"Fatal Error: {ex.Message}\n{ex.StackTrace}");
             }
-        }
-
-        private void UpdateStatus(string msg) => _statusLabel.Text = msg;
-
-        private void UpdateWsStatus(string msg)
-        {
-            if (_wsStatusLabel.InvokeRequired)
-                _wsStatusLabel.Invoke(new Action(() => _wsStatusLabel.Text = msg));
-            else
-                _wsStatusLabel.Text = msg;
         }
 
         private void DisplayScrapedPositions(List<ScrapedPosition> positions)
@@ -276,31 +320,9 @@ namespace BinanceCopyTradingMonitor
             // Update position tracker (detects quick gainers)
             _positionTracker?.UpdatePositions(positions);
 
-            var sb = new System.Text.StringBuilder();
-            
-            sb.AppendLine($"{positions.Count} positions - {DateTime.Now:HH:mm:ss}");
-            sb.AppendLine(string.Format("{0,-15} | {1,-20} | {2,-25} | {3,-25}", 
-                "Trader", "Size", "Margin", "PNL (ROE)"));
-            sb.AppendLine("---");
-
             foreach (var pos in positions)
-            {
-                var pnlDisplay = $"{pos.PnL:+0.00;-0.00} {pos.PnLCurrency} ({pos.PnLPercentage:+0.00;-0.00}%)";
-                sb.AppendLine(string.Format("{0,-15} | {1,-20} | {2,-25} | {3,-25}", 
-                    pos.Trader.Length > 15 ? pos.Trader.Substring(0, 12) + "..." : pos.Trader,
-                    pos.Size.Length > 20 ? pos.Size.Substring(0, 17) + "..." : pos.Size,
-                    pos.Margin.Length > 25 ? pos.Margin.Substring(0, 22) + "..." : pos.Margin,
-                    pnlDisplay.Length > 25 ? pnlDisplay.Substring(0, 22) + "..." : pnlDisplay));
-                
                 CheckPnLAndNotify(pos);
-            }
 
-            if (_textBox.InvokeRequired)
-                _textBox.Invoke(new Action(() => _textBox.Text = sb.ToString()));
-            else
-                _textBox.Text = sb.ToString();
-
-            _statusLabel.Text = $"{positions.Count} positions - {DateTime.Now:HH:mm:ss}";
             _trayIcon.Text = $"Copy Trading: {positions.Count} positions";
 
             if (_positionWidget == null || _positionWidget.IsDisposed)
@@ -308,6 +330,7 @@ namespace BinanceCopyTradingMonitor
                 _positionWidget = new PositionWidget();
                 _positionWidget.Show();
                 _positionWidget.BringToFront();
+                if (_toggleWidgetItem != null) _toggleWidgetItem.Text = "Hide Positions";
             }
 
             var positionDataList = positions.Select(p => new PositionData
@@ -347,7 +370,7 @@ namespace BinanceCopyTradingMonitor
                 var positionKey = $"{pos.Trader}|{pos.Symbol}";
                 var alertKey = "";
 
-                if (pnlValue >= 50)
+                if (pnlValue >= 30)
                 {
                     alertKey = $"{positionKey}|PROFIT";
                     if (!_notifiedPositions.Contains(alertKey))
@@ -357,7 +380,7 @@ namespace BinanceCopyTradingMonitor
                         _ = _webSocketServer?.BroadcastAlertAsync($"{pos.Trader} - {pos.Symbol}", $"PROFIT: {pnlDisplay}", true);
                     }
                 }
-                else if (pnlValue < -10)
+                else if (pnlValue < -100)
                 {
                     alertKey = $"{positionKey}|LOSS";
                     if (!_notifiedPositions.Contains(alertKey))

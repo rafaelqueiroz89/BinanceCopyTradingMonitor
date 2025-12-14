@@ -25,6 +25,8 @@ namespace BinanceCopyTradingMonitor
         public event Action<string>? OnLog;
         public event Action<string>? OnError;
         public event Action<int>? OnClientCountChanged;
+        public event Action? OnRefreshRequested;
+        public event Action? OnRestartRequested;
 
         public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
@@ -238,6 +240,18 @@ namespace BinanceCopyTradingMonitor
                     case "get_positions":
                         await SendCurrentPositionsToClientAsync(webSocket, cancellationToken);
                         break;
+                        
+                    case "refresh":
+                        Log("Refresh command received");
+                        OnRefreshRequested?.Invoke();
+                        await SendToClientAsync(webSocket, new { type = "refresh_started", timestamp = DateTime.UtcNow }, cancellationToken);
+                        break;
+                        
+                    case "restart":
+                        Log("Restart command received - restarting application");
+                        await SendToClientAsync(webSocket, new { type = "restart_started", timestamp = DateTime.UtcNow }, cancellationToken);
+                        OnRestartRequested?.Invoke();
+                        break;
                 }
             }
             catch { }
@@ -416,14 +430,18 @@ namespace BinanceCopyTradingMonitor
 
         private void Log(string message)
         {
-            try { Console.WriteLine($"[WS] {message}"); } catch { }
-            try { OnLog?.Invoke(message); } catch { }
+            if (OnLog != null)
+                try { OnLog.Invoke($"[WS] {message}"); } catch { }
+            else
+                try { Console.WriteLine($"[WS] {message}"); } catch { }
         }
 
         private void Error(string message)
         {
-            try { Console.WriteLine($"[WS ERROR] {message}"); } catch { }
-            try { OnError?.Invoke(message); } catch { }
+            if (OnError != null)
+                try { OnError.Invoke($"[WS ERROR] {message}"); } catch { }
+            else
+                try { Console.WriteLine($"[WS ERROR] {message}"); } catch { }
         }
 
         public void Dispose()
@@ -433,3 +451,4 @@ namespace BinanceCopyTradingMonitor
         }
     }
 }
+

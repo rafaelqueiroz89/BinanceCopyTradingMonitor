@@ -176,6 +176,32 @@ namespace BinanceMonitorMaui.Services
             catch { }
         }
 
+        public async Task SendRefreshAsync()
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "refresh" });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendRestartAsync()
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "restart" });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+
         public void Dispose()
         {
             _cts?.Cancel();

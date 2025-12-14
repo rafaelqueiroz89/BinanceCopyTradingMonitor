@@ -1,10 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Globalization;
-using System.Linq;
-using System.Windows.Forms;
-
 namespace BinanceCopyTradingMonitor
 {
     public class PositionWidget : Form
@@ -12,8 +5,6 @@ namespace BinanceCopyTradingMonitor
         private ListView _listView;
         private Label _summaryLabel;
         private System.Windows.Forms.Timer _updateTimer;
-        private Point _dragStart;
-        private bool _isDragging;
 
         public PositionWidget()
         {
@@ -25,16 +16,18 @@ namespace BinanceCopyTradingMonitor
 
         private void InitializeUI()
         {
-            // Window settings
+            // Window settings - use Sizable to get minimize button next to X
             this.Text = "Copy Trading Monitor";
             this.Size = new Size(1200, 400);
             this.StartPosition = FormStartPosition.Manual;
             this.Location = new Point(Screen.PrimaryScreen.WorkingArea.Width - 870, 50);
-            this.FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            this.FormBorderStyle = FormBorderStyle.Sizable;
             this.TopMost = true;
             this.BackColor = Color.FromArgb(20, 20, 30);
             this.ForeColor = Color.White;
             this.ShowInTaskbar = false;
+            this.MinimizeBox = true;
+            this.MaximizeBox = false;
 
             // ListView for positions
             _listView = new ListView
@@ -117,6 +110,16 @@ namespace BinanceCopyTradingMonitor
             if (e.CloseReason == CloseReason.UserClosing)
             {
                 e.Cancel = true;
+                this.Hide();
+            }
+        }
+        
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.WindowState = FormWindowState.Normal;
                 this.Hide();
             }
         }

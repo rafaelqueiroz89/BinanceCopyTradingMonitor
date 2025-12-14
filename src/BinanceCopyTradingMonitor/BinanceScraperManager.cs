@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -19,12 +20,30 @@ namespace BinanceCopyTradingMonitor
         private IPage? _page;
         private bool _isRunning;
         
-        // One tab (Page) for each trader
-        private Dictionary<string, IPage> _traderPages = new Dictionary<string, IPage>();
+        // One tab (Page) for each trader - thread-safe for parallel operations
+        private ConcurrentDictionary<string, IPage> _traderPages = new ConcurrentDictionary<string, IPage>();
 
         public event Action<List<ScrapedPosition>>? OnPositionsUpdated;
         public event Action<string>? OnError;
         public event Action<string>? OnLog;
+        public event Action? OnRestartRequested;
+        
+        private volatile bool _refreshRequested = false;
+        private volatile bool _restartRequested = false;
+        private DateTime _lastAutoRefresh = DateTime.Now;
+        private const int AUTO_REFRESH_MINUTES = 10;
+
+        public void RequestRefresh()
+        {
+            _refreshRequested = true;
+            Log("Refresh requested - will reload pages on next cycle");
+        }
+        
+        public void RequestRestart()
+        {
+            _restartRequested = true;
+            Log("Restart requested - will kill Chrome and restart");
+        }
 
         public async Task<bool> StartAsync()
         {
@@ -72,51 +91,48 @@ namespace BinanceCopyTradingMonitor
                 await _page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
                     new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
 
-                Log("\nACTION REQUIRED:");
-                Log("1. Login to Binance (if necessary)");
-                Log("2. Navigate to your Copy Trading positions");
-                Log("3. Press ENTER here in the console\n");
-
-                Console.WriteLine("Press ENTER to continue...");
-                Console.ReadLine();
-
-                // PHASE 2: Close visible browser
-                await _browser.CloseAsync();
-                await Task.Delay(1000);
+                // Auto-detect login status - wait for traders to appear
+                Log("Waiting for login/traders to appear...");
+                bool tradersFound = false;
+                int waitAttempts = 0;
+                const int maxWaitMinutes = 5;
                 
-                // PHASE 3: Reopen in HEADLESS mode with performance flags
-                Log("Opening browser in BACKGROUND (headless + performance)...");
-                _browser = await Puppeteer.LaunchAsync(new LaunchOptions
+                while (!tradersFound && waitAttempts < maxWaitMinutes * 12) // Check every 5 seconds for 5 minutes
                 {
-                    Headless = true,
-                    Args = new[] { 
-                        "--no-sandbox",
-                        "--disable-setuid-sandbox",
-                        "--disable-gpu",
-                        "--disable-dev-shm-usage",
-                        "--disable-software-rasterizer",
-                        "--disable-extensions",
-                        "--disable-background-timer-throttling",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--disable-blink-features=AutomationControlled",
-                        "--mute-audio"
-                    },
-                    DefaultViewport = null,
-                    UserDataDir = "./chrome-profile"
-                });
+                    try
+                    {
+                        var hasTraders = await _page.EvaluateExpressionAsync<bool>(
+                            "document.querySelectorAll('.t-subtitle4.text-PrimaryText.cursor-pointer').length > 0"
+                        );
+                        
+                        if (hasTraders)
+                        {
+                            tradersFound = true;
+                            Log("Traders detected! Continuing automatically...");
+                        }
+                        else
+                        {
+                            waitAttempts++;
+                            if (waitAttempts % 6 == 0) // Every 30 seconds
+                            {
+                                Log($"Still waiting for login... ({waitAttempts * 5 / 60}m {(waitAttempts * 5) % 60}s)");
+                            }
+                            await Task.Delay(5000);
+                        }
+                    }
+                    catch
+                    {
+                        await Task.Delay(5000);
+                        waitAttempts++;
+                    }
+                }
                 
-                _page = await _browser.NewPageAsync();
-                await _page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
-                    new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
+                if (!tradersFound)
+                {
+                    Error($"No traders found after {maxWaitMinutes} minutes. Please login to Binance manually.");
+                    return false;
+                }
                 
-                Log("Browser in BACKGROUND - Login maintained\n");
-
-                // Wait for page to load completely
-                await Task.Delay(3000);
-                
-                // Wait specifically for trader names
-                await _page.WaitForSelectorAsync(".t-subtitle4.text-PrimaryText", new WaitForSelectorOptions { Timeout = 15000 });
                 await Task.Delay(2000);
 
                 // Identify traders on page
@@ -180,6 +196,30 @@ namespace BinanceCopyTradingMonitor
                 {
                     _cycleCount++;
                     
+                    // Check if restart was requested
+                    if (_restartRequested)
+                    {
+                        _restartRequested = false;
+                        OnRestartRequested?.Invoke();
+                        return; // Exit loop, app will restart
+                    }
+                    
+                    // Check if refresh was requested
+                    if (_refreshRequested)
+                    {
+                        _refreshRequested = false;
+                        await RefreshAllPagesAsync();
+                        _lastAutoRefresh = DateTime.Now;
+                    }
+                    
+                    // Auto-refresh every 10 minutes
+                    if ((DateTime.Now - _lastAutoRefresh).TotalMinutes >= AUTO_REFRESH_MINUTES)
+                    {
+                        Log($"Auto-refresh triggered (every {AUTO_REFRESH_MINUTES} minutes)");
+                        await RefreshAllPagesAsync();
+                        _lastAutoRefresh = DateTime.Now;
+                    }
+                    
                     var positions = await ExtractPositionsAsync();
                     
                     if (positions.Count > 0)
@@ -200,6 +240,73 @@ namespace BinanceCopyTradingMonitor
                     Error($"Error in loop: {ex.Message}");
                     await Task.Delay(10000);
                 }
+            }
+        }
+
+        private async Task RefreshAllPagesAsync()
+        {
+            try
+            {
+                Log("Refreshing all trader pages in parallel...");
+                
+                var refreshTasks = _traderPages.ToList().Select(kvp => RefreshSinglePageAsync(kvp.Key, kvp.Value));
+                await Task.WhenAll(refreshTasks);
+                
+                Log("All pages refreshed!");
+            }
+            catch (Exception ex)
+            {
+                Error($"Error in RefreshAllPagesAsync: {ex.Message}");
+            }
+        }
+
+        private async Task RefreshSinglePageAsync(string traderName, IPage page)
+        {
+            try
+            {
+                if (page == null || page.IsClosed) return;
+                
+                await page.ReloadAsync(new NavigationOptions 
+                { 
+                    WaitUntil = new[] { WaitUntilNavigation.Networkidle2 },
+                    Timeout = 30000 
+                });
+                
+                // Retry expand with increasing delays
+                bool clicked = false;
+                for (int attempt = 1; attempt <= 3 && !clicked; attempt++)
+                {
+                    await Task.Delay(1500 * attempt); // 1.5s, 3s, 4.5s
+                    
+                    clicked = await page.EvaluateFunctionAsync<bool>(@"(targetName) => {
+                        const main = document.querySelector('.copy-mgmt-wrap');
+                        if (!main) return false;
+                        const traderBlocks = Array.from(main.querySelectorAll('.bn-flex.py-\\[24px\\].flex-col.gap-\\[24px\\]'));
+                        for (const block of traderBlocks) {
+                            const nameEl = block.querySelector('.t-subtitle4.text-PrimaryText.cursor-pointer');
+                            if (!nameEl) continue;
+                            if (nameEl.textContent.trim() === targetName) {
+                                const expandBtn = block.querySelector('.bn-flex.gap-\\[4px\\].items-center.cursor-pointer');
+                                if (expandBtn) { expandBtn.click(); return true; }
+                            }
+                        }
+                        return false;
+                    }", traderName);
+                }
+                
+                if (clicked)
+                {
+                    try { await page.WaitForSelectorAsync("table", new WaitForSelectorOptions { Timeout = 10000 }); } catch { }
+                    Log($"Refreshed: {traderName}");
+                }
+                else
+                {
+                    Error($"Refreshed {traderName} but failed to expand after 3 attempts");
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"Error refreshing {traderName}: {ex.Message}");
             }
         }
 
@@ -251,74 +358,81 @@ namespace BinanceCopyTradingMonitor
                 return;
             }
 
-            foreach (var trader in traders)
+            Log($"Opening {traders.Count} trader tabs in PARALLEL...");
+            
+            // Open all tabs in parallel
+            var tasks = traders.Select(trader => OpenSingleTraderTabAsync(trader));
+            await Task.WhenAll(tasks);
+            
+            Log($"All {_traderPages.Count} trader tabs ready!");
+        }
+        
+        private async Task OpenSingleTraderTabAsync(ScrapedTraderData trader)
+        {
+            try
             {
-                try
-                {
-                    Log($"Opening tab for {trader.Name}...");
+                Log($"Opening tab for {trader.Name}...");
 
-                    // Open new tab in the same browser
-                    var page = await _browser.NewPageAsync();
-                    await page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
-                        new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
+                // Open new tab in the same browser
+                var page = await _browser!.NewPageAsync();
+                await page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
+                    new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
 
-                    await Task.Delay(2000);
+                await Task.Delay(2000);
 
-                    // Click "Expand Details" for this trader by NAME (not index!)
-                    var clicked = await page.EvaluateFunctionAsync<bool>(@"(targetName) => {
-                        const main = document.querySelector('.copy-mgmt-wrap');
-                        if (!main) return false;
+                // Click "Expand Details" for this trader by NAME (not index!)
+                var clicked = await page.EvaluateFunctionAsync<bool>(@"(targetName) => {
+                    const main = document.querySelector('.copy-mgmt-wrap');
+                    if (!main) return false;
+                    
+                    const traderBlocks = Array.from(main.querySelectorAll('.bn-flex.py-\\[24px\\].flex-col.gap-\\[24px\\]'));
+                    
+                    for (const block of traderBlocks) {
+                        const nameEl = block.querySelector('.t-subtitle4.text-PrimaryText.cursor-pointer');
+                        if (!nameEl) continue;
                         
-                        const traderBlocks = Array.from(main.querySelectorAll('.bn-flex.py-\\[24px\\].flex-col.gap-\\[24px\\]'));
+                        const traderName = nameEl.textContent.trim();
                         
-                        for (const block of traderBlocks) {
-                            const nameEl = block.querySelector('.t-subtitle4.text-PrimaryText.cursor-pointer');
-                            if (!nameEl) continue;
-                            
-                            const traderName = nameEl.textContent.trim();
-                            
-                            if (traderName === targetName) {
-                                const expandBtn = block.querySelector('.bn-flex.gap-\\[4px\\].items-center.cursor-pointer');
-                                if (expandBtn) {
-                                    expandBtn.click();
-                                    return true;
-                                }
+                        if (traderName === targetName) {
+                            const expandBtn = block.querySelector('.bn-flex.gap-\\[4px\\].items-center.cursor-pointer');
+                            if (expandBtn) {
+                                expandBtn.click();
+                                return true;
                             }
                         }
-                        
-                        return false;
-                    }", trader.Name);
+                    }
                     
-                    if (!clicked)
-                    {
-                        Error($"Failed to click Expand Details for {trader.Name}!");
-                        continue;
-                    }
+                    return false;
+                }", trader.Name);
+                
+                if (!clicked)
+                {
+                    Error($"Failed to click Expand Details for {trader.Name}!");
+                    return;
+                }
 
-                    // Wait for table to appear (critical for background tabs!)
-                    try
-                    {
-                        await page.WaitForSelectorAsync("table", new WaitForSelectorOptions { Timeout = 10000 });
-                        
-                        // Verify rows exist
-                        var rowCount = await page.EvaluateExpressionAsync<int>(
-                            "document.querySelectorAll('tbody.bn-web-table-tbody tr:not(.bn-web-table-measure-row)').length"
-                        );
-                        Log($"{trader.Name}: {rowCount} rows in table");
-                        
-                        // Save tab for this trader
-                        _traderPages[trader.Name] = page;
-                        Log($"{trader.Name} ready! Table always expanded!");
-                    }
-                    catch (Exception ex)
-                    {
-                        Error($"Timeout waiting for table for {trader.Name}: {ex.Message}");
-                    }
+                // Wait for table to appear
+                try
+                {
+                    await page.WaitForSelectorAsync("table", new WaitForSelectorOptions { Timeout = 10000 });
+                    
+                    // Verify rows exist
+                    var rowCount = await page.EvaluateExpressionAsync<int>(
+                        "document.querySelectorAll('tbody.bn-web-table-tbody tr:not(.bn-web-table-measure-row)').length"
+                    );
+                    Log($"{trader.Name}: {rowCount} rows - READY!");
+                    
+                    // Save tab for this trader
+                    _traderPages[trader.Name] = page;
                 }
                 catch (Exception ex)
                 {
-                    Error($"Error opening tab for {trader.Name}: {ex.Message}");
+                    Error($"Timeout waiting for table for {trader.Name}: {ex.Message}");
                 }
+            }
+            catch (Exception ex)
+            {
+                Error($"Error opening tab for {trader.Name}: {ex.Message}");
             }
         }
 
@@ -492,14 +606,18 @@ namespace BinanceCopyTradingMonitor
 
         private void Log(string message)
         {
-            try { Console.WriteLine(message); } catch { }
-            try { OnLog?.Invoke(message); } catch { }
+            if (OnLog != null)
+                try { OnLog.Invoke(message); } catch { }
+            else
+                try { Console.WriteLine(message); } catch { }
         }
 
         private void Error(string message)
         {
-            try { Console.WriteLine($"ERROR: {message}"); } catch { }
-            try { OnError?.Invoke(message); } catch { }
+            if (OnError != null)
+                try { OnError.Invoke(message); } catch { }
+            else
+                try { Console.WriteLine($"ERROR: {message}"); } catch { }
         }
 
         private void CleanupScreenshots()

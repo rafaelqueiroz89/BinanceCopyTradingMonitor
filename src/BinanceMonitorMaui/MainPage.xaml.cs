@@ -94,10 +94,20 @@ public partial class MainPage : ContentPage
 
     private void OnAlertReceived(string title, string message, bool isProfit)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
+        MainThread.BeginInvokeOnMainThread(() =>
         {
             var icon = isProfit ? "💰" : "⚠️";
-            await DisplayAlert($"{icon} {title}", message, "OK");
+            
+            // Only show notification bar, no popup
+            var notification = new NotificationRequest
+            {
+                NotificationId = _notificationId++,
+                Title = $"{icon} {title}",
+                Description = message,
+                BadgeNumber = 1,
+                CategoryType = isProfit ? NotificationCategoryType.Status : NotificationCategoryType.Alarm
+            };
+            LocalNotificationCenter.Current.Show(notification);
         });
     }
 
@@ -297,5 +307,59 @@ public partial class MainPage : ContentPage
         await _webSocket.DisconnectAsync();
         _isConnecting = false;
         await ConnectToSavedUrl();
+    }
+
+    private async void OnRefreshClicked(object? sender, EventArgs e)
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        await _webSocket.SendRefreshAsync();
+        
+        // Visual feedback
+        var originalText = StatusLabel.Text;
+        var originalColor = StatusLabel.TextColor;
+        StatusLabel.Text = "Refreshing...";
+        StatusLabel.TextColor = Color.FromArgb("#f59e0b");
+        
+        await Task.Delay(2000);
+        
+        if (_webSocket.IsConnected)
+        {
+            StatusLabel.Text = originalText;
+            StatusLabel.TextColor = originalColor;
+        }
+    }
+    
+    private async void OnRestartClicked(object? sender, EventArgs e)
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        bool confirm = await DisplayAlert("Restart Chrome", 
+            "This will kill Chrome and restart the scraper. Continue?", 
+            "Restart", "Cancel");
+            
+        if (!confirm) return;
+        
+        await _webSocket.SendRestartAsync();
+        
+        // Visual feedback
+        StatusLabel.Text = "Restarting Chrome...";
+        StatusLabel.TextColor = Color.FromArgb("#f59e0b");
+        
+        await Task.Delay(5000);
+        
+        if (_webSocket.IsConnected)
+        {
+            StatusLabel.Text = "Connected";
+            StatusLabel.TextColor = Color.FromArgb("#22c55e");
+        }
     }
 }
