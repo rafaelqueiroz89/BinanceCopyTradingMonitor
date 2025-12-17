@@ -21,13 +21,16 @@ namespace BinanceCopyTradingMonitor
         private NotifyIcon _trayIcon = new NotifyIcon();
         private BinanceScraperManager? _scraper;
         private BinanceWebSocketManager? _webSocketServer;
-        private PositionTracker? _positionTracker;
         private PositionWidget? _positionWidget;
         private CoinAnalysisService? _analysisService;
         private AppConfig? _config;
         private List<ScrapedPosition> _lastPositions = new();
         private ToolStripMenuItem? _toggleWidgetItem;
         private ToolStripMenuItem? _toggleConsoleItem;
+        
+        // PnL history tracking (key: UniqueKey, value: list of (timestamp, pnl, pnlPercent))
+        private Dictionary<string, List<(DateTime Time, decimal PnL, decimal PnLPercent)>> _pnlHistory = new();
+        private const int PNL_HISTORY_MAX_MINUTES = 10;
 
         private const int WEBSOCKET_PORT = 8765;
 
@@ -144,6 +147,55 @@ namespace BinanceCopyTradingMonitor
             Console.WriteLine($"[ANALYZE] Result: {result.Recommendation} ({result.Confidence}%)");
         }
         
+        private async Task AnalyzePortfolioAsync()
+        {
+            if (_analysisService == null || _webSocketServer == null)
+            {
+                Console.WriteLine("[PORTFOLIO] Service not initialized");
+                return;
+            }
+            
+            if (_lastPositions.Count == 0)
+            {
+                await _webSocketServer.BroadcastMessageAsync(new
+                {
+                    type = "portfolio_analysis_result",
+                    analysis = "No positions to analyze",
+                    summary = "No open positions found",
+                    totalPositions = 0,
+                    totalPnL = 0m,
+                    insights = new List<object>()
+                });
+                return;
+            }
+            
+            Console.WriteLine($"[PORTFOLIO] Analyzing {_lastPositions.Count} positions...");
+            var result = await _analysisService.AnalyzePortfolioAsync(_lastPositions);
+            
+            Console.WriteLine($"[PORTFOLIO] Broadcasting result...");
+            
+            var broadcastMsg = new
+            {
+                type = "portfolio_analysis_result",
+                analysis = result.Analysis,
+                summary = result.Summary,
+                totalPositions = result.TotalPositions,
+                totalPnL = result.TotalPnL,
+                insights = result.Insights.Select(i => new
+                {
+                    symbol = i.Symbol,
+                    trader = i.Trader,
+                    recommendation = i.Recommendation,
+                    insight = i.Insight,
+                    marketData = i.MarketData
+                }).ToList()
+            };
+            
+            await _webSocketServer.BroadcastMessageAsync(broadcastMsg);
+            
+            Console.WriteLine($"[PORTFOLIO] Broadcast complete! {result.Insights.Count} insights sent");
+        }
+        
         private void ToggleWidget()
         {
             if (_positionWidget != null && !_positionWidget.IsDisposed)
@@ -174,7 +226,6 @@ namespace BinanceCopyTradingMonitor
             try
             {
                 LoadConfig();
-                InitializePositionTracker();
                 await StartWebSocketServerAsync();
                 await StartScraperAsync();
             }
@@ -218,51 +269,6 @@ namespace BinanceCopyTradingMonitor
             }
         }
 
-        private void InitializePositionTracker()
-        {
-            _positionTracker = new PositionTracker
-            {
-                QuickGainerThreshold = _config?.QuickGainerThreshold ?? 10m,
-                ExplosionThreshold = _config?.ExplosionThreshold ?? 20m
-            };
-
-            _positionTracker.OnLog += (msg) => Console.WriteLine(msg);
-            
-            _positionTracker.OnQuickGainer += async (alert) =>
-            {
-                ShowQuickGainerNotification(alert);
-                
-                if (_webSocketServer != null)
-                {
-                    await _webSocketServer.BroadcastMessageAsync(new
-                    {
-                        type = "quick_gainer",
-                        alertType = alert.AlertType,
-                        trader = alert.Trader,
-                        symbol = alert.Symbol,
-                        pnl = alert.PnL,
-                        pnlPercentage = alert.CurrentPnLPercentage,
-                        growth = alert.Growth,
-                        message = alert.Message,
-                        timestamp = DateTime.UtcNow
-                    });
-                }
-            };
-        }
-
-        private void ShowQuickGainerNotification(QuickGainerAlert alert)
-        {
-            var icon = alert.AlertType == "explosion" ? "🚀" : "🔥";
-            var title = alert.AlertType == "explosion" ? "EXPLOSION!" : "Growing Fast";
-            
-            _trayIcon.BalloonTipTitle = $"{icon} {title}";
-            _trayIcon.BalloonTipText = $"{alert.Trader} | {alert.Symbol}\nGrew {alert.Growth:+0.00}% → now at {alert.CurrentPnLPercentage:+0.00}%";
-            _trayIcon.BalloonTipIcon = ToolTipIcon.Info;
-            _trayIcon.ShowBalloonTip(10000);
-            
-            Console.WriteLine($"\n{alert.Message}\n");
-        }
-
         private async System.Threading.Tasks.Task StartWebSocketServerAsync()
         {
             try
@@ -299,6 +305,48 @@ namespace BinanceCopyTradingMonitor
                 {
                     Console.WriteLine($"[ANALYZE] Request for {symbol}");
                     await AnalyzePositionAsync(symbol);
+                };
+                
+                _webSocketServer.OnPortfolioAnalysisRequested += async () =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Analysis requested for {_lastPositions.Count} positions");
+                    await AnalyzePortfolioAsync();
+                };
+                
+                _webSocketServer.OnClickTPSLRequested += async (trader, symbol, size) =>
+                {
+                    Console.WriteLine($"[TP/SL] WebSocket request for {trader} - {symbol} (size: {size})");
+                    if (_scraper != null)
+                    {
+                        return await _scraper.ClickTPSLButtonAsync(trader, symbol, size);
+                    }
+                    return false;
+                };
+                
+                _webSocketServer.OnClosePositionRequested += async (trader, symbol, size) =>
+                {
+                    Console.WriteLine($"[CLOSE] WebSocket request for {trader} - {symbol} (size: {size})");
+                    if (_scraper != null)
+                    {
+                        return await _scraper.ClickClosePositionAsync(trader, symbol, size);
+                    }
+                    return false;
+                };
+                
+                _webSocketServer.OnCloseModalRequested += async (trader) =>
+                {
+                    Console.WriteLine($"[MODAL] Close modal request for {trader}");
+                    if (_scraper != null)
+                    {
+                        return await _scraper.CloseModalAsync(trader);
+                    }
+                    return false;
+                };
+                
+                _webSocketServer.OnGetAvgPnLRequested += (uniqueKey) =>
+                {
+                    Console.WriteLine($"[AVG PNL] Request for {uniqueKey}");
+                    return Get5MinAvgPnL(uniqueKey);
                 };
 
                 bool started = await _webSocketServer.StartAsync();
@@ -356,16 +404,32 @@ namespace BinanceCopyTradingMonitor
         private void DisplayScrapedPositions(List<ScrapedPosition> positions)
         {
             _lastPositions = positions;
-            _positionTracker?.UpdatePositions(positions);
-
-            foreach (var pos in positions)
-                CheckPnLAndNotify(pos);
+            
+            // Track PnL history for each position
+            TrackPnLHistory(positions);
 
             _trayIcon.Text = $"Copy Trading: {positions.Count} positions";
 
             if (_positionWidget == null || _positionWidget.IsDisposed)
             {
                 _positionWidget = new PositionWidget();
+                _positionWidget.OnTPSLClickRequested += async (trader, symbol, size) =>
+                {
+                    Console.WriteLine($"[TP/SL] Widget click for {trader} - {symbol} (size: {size})");
+                    if (_scraper != null)
+                    {
+                        await _scraper.ClickTPSLButtonAsync(trader, symbol, size);
+                    }
+                };
+                
+                _positionWidget.OnCloseModalRequested += async (trader) =>
+                {
+                    Console.WriteLine($"[MODAL] Widget close modal for {trader}");
+                    if (_scraper != null)
+                    {
+                        await _scraper.CloseModalAsync(trader);
+                    }
+                };
                 _positionWidget.Show();
                 _positionWidget.BringToFront();
                 if (_toggleWidgetItem != null) _toggleWidgetItem.Text = "Hide Positions";
@@ -396,59 +460,47 @@ namespace BinanceCopyTradingMonitor
             }
             catch { }
         }
-
-        private HashSet<string> _notifiedPositions = new HashSet<string>();
-
-        private void CheckPnLAndNotify(ScrapedPosition pos)
+        
+        private void TrackPnLHistory(List<ScrapedPosition> positions)
         {
-            try
-            {
-                var pnlValue = pos.PnL;
-                var pnlDisplay = $"{pos.PnL:+0.00;-0.00} {pos.PnLCurrency} ({pos.PnLPercentage:+0.00;-0.00}%)";
-                var positionKey = $"{pos.Trader}|{pos.Symbol}";
-                var alertKey = "";
-
-                if (pnlValue >= 30)
-                {
-                    alertKey = $"{positionKey}|PROFIT";
-                    if (!_notifiedPositions.Contains(alertKey))
-                    {
-                        _notifiedPositions.Add(alertKey);
-                        ShowNotification($"{pos.Trader} - {pos.Symbol}", $"PROFIT: {pnlDisplay}", ToolTipIcon.Info, true);
-                        _ = _webSocketServer?.BroadcastAlertAsync($"{pos.Trader} - {pos.Symbol}", $"PROFIT: {pnlDisplay}", true);
-                    }
-                }
-                else if (pnlValue < -100)
-                {
-                    alertKey = $"{positionKey}|LOSS";
-                    if (!_notifiedPositions.Contains(alertKey))
-                    {
-                        _notifiedPositions.Add(alertKey);
-                        ShowNotification($"{pos.Trader} - {pos.Symbol}", $"LOSS: {pnlDisplay}", ToolTipIcon.Warning, false);
-                        _ = _webSocketServer?.BroadcastAlertAsync($"{pos.Trader} - {pos.Symbol}", $"LOSS: {pnlDisplay}", false);
-                    }
-                }
-                else
-                {
-                    _notifiedPositions.Remove($"{positionKey}|PROFIT");
-                    _notifiedPositions.Remove($"{positionKey}|LOSS");
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error checking PnL: {ex.Message}");
-            }
-        }
-
-        private void ShowNotification(string title, string message, ToolTipIcon icon, bool isProfit)
-        {
-            _trayIcon.BalloonTipTitle = isProfit ? "💰 PROFIT ALERT" : "⚠️ LOSS ALERT";
-            _trayIcon.BalloonTipText = $"{title}\n{message}";
-            _trayIcon.BalloonTipIcon = icon;
-            _trayIcon.ShowBalloonTip(5000);
+            var now = DateTime.Now;
+            var cutoff = now.AddMinutes(-PNL_HISTORY_MAX_MINUTES);
             
-            var color = isProfit ? "GREEN" : "RED";
-            Console.WriteLine($"\n[{color} ALERT] {title}: {message}\n");
+            foreach (var pos in positions)
+            {
+                var key = $"{pos.Trader}_{pos.Symbol}_{pos.Side}_{pos.Size}";
+                
+                if (!_pnlHistory.ContainsKey(key))
+                    _pnlHistory[key] = new List<(DateTime, decimal, decimal)>();
+                
+                _pnlHistory[key].Add((now, pos.PnL, pos.PnLPercentage));
+                
+                // Remove old entries
+                _pnlHistory[key] = _pnlHistory[key].Where(x => x.Time > cutoff).ToList();
+            }
+            
+            // Clean up positions that no longer exist
+            var currentKeys = positions.Select(p => $"{p.Trader}_{p.Symbol}_{p.Side}_{p.Size}").ToHashSet();
+            var keysToRemove = _pnlHistory.Keys.Where(k => !currentKeys.Contains(k)).ToList();
+            foreach (var key in keysToRemove)
+                _pnlHistory.Remove(key);
+        }
+        
+        public (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message) Get5MinAvgPnL(string uniqueKey)
+        {
+            if (!_pnlHistory.ContainsKey(uniqueKey) || _pnlHistory[uniqueKey].Count == 0)
+                return (false, 0, 0, 0, "No history data");
+            
+            var cutoff = DateTime.Now.AddMinutes(-5);
+            var recent = _pnlHistory[uniqueKey].Where(x => x.Time > cutoff).ToList();
+            
+            if (recent.Count == 0)
+                return (false, 0, 0, 0, "No recent data");
+            
+            var avgPnL = recent.Average(x => x.PnL);
+            var avgPnLPercent = recent.Average(x => x.PnLPercent);
+            
+            return (true, avgPnL, avgPnLPercent, recent.Count, "OK");
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

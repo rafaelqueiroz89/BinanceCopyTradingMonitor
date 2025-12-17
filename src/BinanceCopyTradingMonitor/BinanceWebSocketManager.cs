@@ -28,6 +28,11 @@ namespace BinanceCopyTradingMonitor
         public event Action? OnRefreshRequested;
         public event Action? OnRestartRequested;
         public event Action<string>? OnAnalyzeRequested;
+        public event Action? OnPortfolioAnalysisRequested;
+        public event Func<string, string, string, Task<bool>>? OnClickTPSLRequested; // trader, symbol, size
+        public event Func<string, string, string, Task<bool>>? OnClosePositionRequested; // trader, symbol, size
+        public event Func<string, Task<bool>>? OnCloseModalRequested; // trader
+        public event Func<string, (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message)>? OnGetAvgPnLRequested; // uniqueKey
 
         public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
@@ -254,6 +259,89 @@ namespace BinanceCopyTradingMonitor
                         Log($"Analyze request for {symbol}");
                         await SendToClientAsync(webSocket, new { type = "analysis_started", symbol = symbol }, cancellationToken);
                         OnAnalyzeRequested?.Invoke(symbol);
+                        break;
+                        
+                    case "portfolio_analysis":
+                        Log("Portfolio analysis requested");
+                        await SendToClientAsync(webSocket, new { type = "portfolio_analysis_started" }, cancellationToken);
+                        OnPortfolioAnalysisRequested?.Invoke();
+                        break;
+                        
+                    case "click_tpsl":
+                        var tpslTrader = (string?)json?.trader ?? "";
+                        var tpslSymbol = (string?)json?.symbol ?? "";
+                        var tpslSize = (string?)json?.size ?? "";
+                        Log($"TP/SL click request for {tpslTrader} - {tpslSymbol} (size: {tpslSize})");
+                        
+                        if (OnClickTPSLRequested != null)
+                        {
+                            var success = await OnClickTPSLRequested.Invoke(tpslTrader, tpslSymbol, tpslSize);
+                            await SendToClientAsync(webSocket, new 
+                            { 
+                                type = "tpsl_click_result", 
+                                trader = tpslTrader,
+                                symbol = tpslSymbol,
+                                success = success,
+                                message = success ? "TP/SL dialog opened" : "Failed to find TP/SL button"
+                            }, cancellationToken);
+                        }
+                        break;
+                        
+                    case "close_position":
+                        var closeTrader = (string?)json?.trader ?? "";
+                        var closeSymbol = (string?)json?.symbol ?? "";
+                        var closeSize = (string?)json?.size ?? "";
+                        Log($"Close Position request for {closeTrader} - {closeSymbol} (size: {closeSize})");
+                        
+                        if (OnClosePositionRequested != null)
+                        {
+                            var posSuccess = await OnClosePositionRequested.Invoke(closeTrader, closeSymbol, closeSize);
+                            await SendToClientAsync(webSocket, new 
+                            { 
+                                type = "close_position_result", 
+                                trader = closeTrader,
+                                symbol = closeSymbol,
+                                success = posSuccess,
+                                message = posSuccess ? "Close Position dialog opened" : "Failed to click Close Position"
+                            }, cancellationToken);
+                        }
+                        break;
+                        
+                    case "close_modal":
+                        var modalTrader = (string?)json?.trader ?? "";
+                        Log($"Close Modal request for {modalTrader}");
+                        
+                        if (OnCloseModalRequested != null)
+                        {
+                            var closeSuccess = await OnCloseModalRequested.Invoke(modalTrader);
+                            await SendToClientAsync(webSocket, new 
+                            { 
+                                type = "close_modal_result", 
+                                trader = modalTrader,
+                                success = closeSuccess,
+                                message = closeSuccess ? "Modal closed" : "Failed to close modal"
+                            }, cancellationToken);
+                        }
+                        break;
+                        
+                    case "get_avg_pnl":
+                        var uniqueKey = (string?)json?.uniqueKey ?? "";
+                        Log($"Avg PnL request for {uniqueKey}");
+                        
+                        if (OnGetAvgPnLRequested != null)
+                        {
+                            var pnlResult = OnGetAvgPnLRequested.Invoke(uniqueKey);
+                            await SendToClientAsync(webSocket, new 
+                            { 
+                                type = "avg_pnl_result", 
+                                success = pnlResult.Success,
+                                uniqueKey = uniqueKey,
+                                avgPnL = pnlResult.AvgPnL,
+                                avgPnLPercent = pnlResult.AvgPnLPercent,
+                                dataPoints = pnlResult.DataPoints,
+                                message = pnlResult.Message
+                            }, cancellationToken);
+                        }
                         break;
                 }
             }

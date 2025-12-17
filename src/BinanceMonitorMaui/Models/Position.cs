@@ -140,6 +140,15 @@ namespace BinanceMonitorMaui.Models
         public string PnLDisplay => $"{PnL:+0.00;-0.00} ({PnLPercentage:+0.00;-0.00}%)";
         
         public Color PnLColor => PnL < 0 ? Color.FromArgb("#e94560") : Color.FromArgb("#4ade80");
+        
+        public string UniqueKey => $"{Trader}_{Symbol}_{Side}_{Size}";
+        
+        private string _alertIndicator = "";
+        public string AlertIndicator
+        {
+            get => _alertIndicator;
+            set { if (_alertIndicator != value) { _alertIndicator = value; OnPropertyChanged(); } }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -185,6 +194,28 @@ namespace BinanceMonitorMaui.Models
         public string? currentPnlPercent { get; set; }
         public decimal? pnlPercentage { get; set; }
         public decimal? growth { get; set; }
+        
+        public string? analysis { get; set; }
+        public int? totalPositions { get; set; }
+        public List<PositionInsightMsg>? insights { get; set; }
+        
+        // TP/SL click result
+        public bool? success { get; set; }
+        
+        // Avg PnL result
+        public string? uniqueKey { get; set; }
+        public decimal? avgPnL { get; set; }
+        public decimal? avgPnLPercent { get; set; }
+        public int? dataPoints { get; set; }
+    }
+    
+    public class PositionInsightMsg
+    {
+        public string? symbol { get; set; }
+        public string? trader { get; set; }
+        public string? recommendation { get; set; }
+        public string? insight { get; set; }
+        public string? marketData { get; set; }
     }
 
     public class QuickGainerAlert
@@ -209,5 +240,50 @@ namespace BinanceMonitorMaui.Models
         public string Trader { get; set; } = "";
         public string CurrentPnl { get; set; } = "";
         public string CurrentPnlPercent { get; set; } = "";
+    }
+    
+    public class PortfolioAnalysisResult
+    {
+        public string Analysis { get; set; } = "";
+        public string Summary { get; set; } = "";
+        public int TotalPositions { get; set; }
+        public decimal TotalPnL { get; set; }
+        public List<PositionInsight> Insights { get; set; } = new();
+    }
+    
+    public class PositionInsight
+    {
+        public string Symbol { get; set; } = "";
+        public string Trader { get; set; } = "";
+        public string Recommendation { get; set; } = "";
+        public string Insight { get; set; } = "";
+        public string MarketData { get; set; } = "";
+    }
+    
+    public class PositionAlert
+    {
+        public string PositionKey { get; set; } = "";
+        public string AlertType { get; set; } = "";
+        public decimal Threshold { get; set; }
+        public bool IsAbove { get; set; }
+        public bool Triggered { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.Now;
+        
+        public string Description => AlertType switch
+        {
+            "pnl_percent" => $"PnL {(IsAbove ? ">" : "<")} {Threshold:+0;-0}%",
+            "pnl_value" => $"PnL {(IsAbove ? ">" : "<")} {Threshold:+0;-0} USDT",
+            _ => "Custom Alert"
+        };
+    }
+    
+    public class AvgPnLResult
+    {
+        public bool Success { get; set; }
+        public string UniqueKey { get; set; } = "";
+        public decimal AvgPnL { get; set; }
+        public decimal AvgPnLPercent { get; set; }
+        public int DataPoints { get; set; }
+        public string Message { get; set; } = "";
     }
 }

@@ -39,6 +39,178 @@ namespace BinanceCopyTradingMonitor
             _restartRequested = true;
             Log("Restart requested - will kill Chrome and restart");
         }
+        
+        public async Task<bool> CloseModalAsync(string traderName)
+        {
+            try
+            {
+                Log($"[MODAL] Closing modal for {traderName}");
+                
+                if (!_traderPages.TryGetValue(traderName, out var page) || page == null || page.IsClosed)
+                {
+                    Error($"[MODAL] Page not found for trader: {traderName}");
+                    return false;
+                }
+                
+                // Click the X button to close the modal
+                var clicked = await page.EvaluateFunctionAsync<bool>(@"() => {
+                    // Find the modal close button (X icon)
+                    const closeBtn = document.querySelector('.bn-modal-header-next[role=""button""][aria-label=""Close""]');
+                    if (closeBtn) {
+                        closeBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        return true;
+                    }
+                    // Alternative: find any close button with the X svg
+                    const closeSvg = document.querySelector('.bn-modal-header-next svg');
+                    if (closeSvg) {
+                        closeSvg.parentElement.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        return true;
+                    }
+                    return false;
+                }");
+                
+                if (clicked)
+                {
+                    Log($"[MODAL] Successfully closed modal");
+                    return true;
+                }
+                else
+                {
+                    Error($"[MODAL] Could not find close button");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"[MODAL] Error closing modal: {ex.Message}");
+                return false;
+            }
+        }
+        
+        public async Task<bool> ClickClosePositionAsync(string traderName, string symbol, string size)
+        {
+            try
+            {
+                Log($"[CLOSE] Clicking Close Position for {traderName} - {symbol} (size: {size})");
+                
+                if (!_traderPages.TryGetValue(traderName, out var page) || page == null || page.IsClosed)
+                {
+                    Error($"[CLOSE] Page not found for trader: {traderName}");
+                    return false;
+                }
+                
+                // Bring the page to front
+                await page.BringToFrontAsync();
+                
+                // Find the row with the symbol AND size, then click Close Position in column 10
+                var clicked = await page.EvaluateFunctionAsync<bool>(@"(targetSymbol, targetSize) => {
+                    const rows = document.querySelectorAll('tbody.bn-web-table-tbody tr[role=""row""]');
+                    
+                    for (const row of rows) {
+                        const col1 = row.querySelector('td[aria-colindex=""1""]');
+                        const col2 = row.querySelector('td[aria-colindex=""2""]');
+                        if (!col1 || !col2) continue;
+                        
+                        const symbolText = col1.innerText || col1.textContent || '';
+                        const sizeText = col2.innerText || col2.textContent || '';
+                        
+                        // Match by symbol AND size to handle multiple positions of same coin
+                        if (symbolText.includes(targetSymbol) && sizeText.includes(targetSize)) {
+                            // Close Position is in column 10
+                            const closeCell = row.querySelector('td[aria-colindex=""10""]');
+                            if (closeCell) {
+                                const closeLink = closeCell.querySelector('span.cursor-pointer');
+                                if (closeLink) {
+                                    closeLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }", symbol, size);
+                
+                if (clicked)
+                {
+                    Log($"[CLOSE] Successfully clicked Close Position for {symbol}");
+                    return true;
+                }
+                else
+                {
+                    Error($"[CLOSE] Could not find Close Position for {symbol} in {traderName}'s positions");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"[CLOSE] Error clicking Close Position: {ex.Message}");
+                return false;
+            }
+        }
+        
+        public async Task<bool> ClickTPSLButtonAsync(string traderName, string symbol, string size)
+        {
+            try
+            {
+                Log($"[TP/SL] Clicking TP/SL button for {traderName} - {symbol} (size: {size})");
+                
+                if (!_traderPages.TryGetValue(traderName, out var page) || page == null || page.IsClosed)
+                {
+                    Error($"[TP/SL] Page not found for trader: {traderName}");
+                    return false;
+                }
+                
+                // Bring the page to front
+                await page.BringToFrontAsync();
+                
+                // Find the row with the symbol AND size, then click the TP/SL pencil icon in column 9
+                var clicked = await page.EvaluateFunctionAsync<bool>(@"(targetSymbol, targetSize) => {
+                    // Find all data rows (skip measure row)
+                    const rows = document.querySelectorAll('tbody.bn-web-table-tbody tr[role=""row""]');
+                    
+                    for (const row of rows) {
+                        // Get symbol from column 1, size from column 2
+                        const col1 = row.querySelector('td[aria-colindex=""1""]');
+                        const col2 = row.querySelector('td[aria-colindex=""2""]');
+                        if (!col1 || !col2) continue;
+                        
+                        const symbolText = col1.innerText || col1.textContent || '';
+                        const sizeText = col2.innerText || col2.textContent || '';
+                        
+                        // Match by symbol AND size to handle multiple positions of same coin
+                        if (symbolText.includes(targetSymbol) && sizeText.includes(targetSize)) {
+                            // TP/SL pencil icon is in column 9
+                            const tpslCell = row.querySelector('td[aria-colindex=""9""]');
+                            if (tpslCell) {
+                                const pencilIcon = tpslCell.querySelector('svg[viewBox=""0 0 24 24""]');
+                                if (pencilIcon) {
+                                    // Use dispatchEvent for SVG elements
+                                    pencilIcon.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    return false;
+                }", symbol, size);
+                
+                if (clicked)
+                {
+                    Log($"[TP/SL] Successfully clicked TP/SL button for {symbol}");
+                    return true;
+                }
+                else
+                {
+                    Error($"[TP/SL] Could not find TP/SL button for {symbol} in {traderName}'s positions");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"[TP/SL] Error clicking TP/SL: {ex.Message}");
+                return false;
+            }
+        }
 
         public async Task<bool> StartAsync()
         {
@@ -464,7 +636,7 @@ namespace BinanceCopyTradingMonitor
                 }
 
                 var uniquePositions = allPositions
-                    .GroupBy(p => $"{p.Trader}|{p.Symbol}")
+                    .GroupBy(p => $"{p.Trader}|{p.Symbol}|{p.Side}|{p.Size}")
                     .Select(g => g.First())
                     .ToList();
                 

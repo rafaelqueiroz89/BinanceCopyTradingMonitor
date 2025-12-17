@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="BinanceMonitorMaui.AnalysisPage"
+             Title="Portfolio Analysis"
+             BackgroundColor="#1a1a2e">
+
+    <ScrollView Padding="16">
+        <VerticalStackLayout Spacing="16">
+            
+            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" BorderColor="Transparent">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="📊 Summary" FontSize="18" FontAttributes="Bold" TextColor="#a855f7"/>
+                    <Label x:Name="SummaryLabel" FontSize="14" TextColor="White" LineBreakMode="WordWrap"/>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" BorderColor="Transparent">
+                <VerticalStackLayout Spacing="8">
+                    <HorizontalStackLayout Spacing="20">
+                        <VerticalStackLayout>
+                            <Label Text="Positions" FontSize="10" TextColor="#888"/>
+                            <Label x:Name="PositionCountLabel" FontSize="20" FontAttributes="Bold" TextColor="White"/>
+                        </VerticalStackLayout>
+                        <VerticalStackLayout>
+                            <Label Text="Total PnL" FontSize="10" TextColor="#888"/>
+                            <Label x:Name="TotalPnLLabel" FontSize="20" FontAttributes="Bold"/>
+                        </VerticalStackLayout>
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" BorderColor="Transparent">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="🤖 AI Analysis" FontSize="18" FontAttributes="Bold" TextColor="#a855f7"/>
+                    <Label x:Name="AnalysisLabel" FontSize="14" TextColor="White" LineBreakMode="WordWrap"/>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" BorderColor="Transparent">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="📈 Position Insights" FontSize="18" FontAttributes="Bold" TextColor="#a855f7"/>
+                    <Label x:Name="InsightsLabel" FontSize="13" TextColor="White" LineBreakMode="WordWrap"/>
+                </VerticalStackLayout>
+            </Frame>
+            
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
+

@@ -1,6 +1,6 @@
 ﻿using BinanceMonitorMaui.Models;
 using BinanceMonitorMaui.Services;
-using Plugin.LocalNotification;
+using Microsoft.Maui.Controls.Shapes;
 using System.Collections.ObjectModel;
 
 namespace BinanceMonitorMaui;
@@ -8,28 +8,41 @@ namespace BinanceMonitorMaui;
 public partial class MainPage : ContentPage
 {
     private readonly WebSocketService _webSocket;
+    private readonly AlertService _alertService;
     private readonly ObservableCollection<TraderGroup> _groupedPositions = new();
     private const string UrlKey = "websocket_url";
     private const string TokenKey = "websocket_token";
     private const string DefaultUrl = "ws://192.168.1.100:8765/";
     private bool _isConnecting;
-    private int _notificationId = 100;
 
-    public MainPage()
-    {
-        InitializeComponent();
+	public MainPage()
+	{
+		InitializeComponent();
         
         _webSocket = new WebSocketService();
+        _alertService = new AlertService();
         PositionsCollection.ItemsSource = _groupedPositions;
 
         _webSocket.OnConnectionStatusChanged += OnConnectionChanged;
         _webSocket.OnPositionsUpdated += OnPositionsReceived;
         _webSocket.OnTotalsUpdated += OnTotalsReceived;
-        _webSocket.OnAlert += OnAlertReceived;
-        _webSocket.OnQuickGainer += OnQuickGainerReceived;
         _webSocket.OnAnalysisResult += OnAnalysisResultReceived;
+        _webSocket.OnPortfolioAnalysisResult += OnPortfolioAnalysisResultReceived;
+        _webSocket.OnTPSLClickResult += OnTPSLClickResultReceived;
+        _webSocket.OnClosePositionResult += OnClosePositionResultReceived;
+        _webSocket.OnAvgPnLResult += OnAvgPnLResultReceived;
+        
+        _alertService.OnAlertTriggered += OnCustomAlertTriggered;
 
         Dispatcher.Dispatch(async () => await ConnectToSavedUrl());
+    }
+    
+    private void OnCustomAlertTriggered(string symbol, string message)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            await DisplayAlert($"🔔 Alert: {symbol}", message, "OK");
+        });
     }
 
     private void OnConnectionChanged(bool connected, string message)
@@ -91,85 +104,6 @@ public partial class MainPage : ContentPage
 #endif
     }
 
-    private void OnAlertReceived(string title, string message, bool isProfit)
-    {
-        MainThread.BeginInvokeOnMainThread(() =>
-        {
-            var icon = isProfit ? "💰" : "⚠️";
-            
-            var notification = new NotificationRequest
-            {
-                NotificationId = _notificationId++,
-                Title = $"{icon} {title}",
-                Description = message,
-                BadgeNumber = 1,
-                CategoryType = isProfit ? NotificationCategoryType.Status : NotificationCategoryType.Alarm
-            };
-            LocalNotificationCenter.Current.Show(notification);
-        });
-    }
-
-    private void OnQuickGainerReceived(QuickGainerAlert alert)
-    {
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            var hour = DateTime.Now.Hour;
-            var isQuietHours = hour >= 0 && hour < 8;
-            
-            var icon = alert.IsExplosion ? "🚀" : "🔥";
-            var title = alert.IsExplosion ? "EXPLOSION!" : "Growing Fast";
-            
-            var notification = new NotificationRequest
-            {
-                NotificationId = _notificationId++,
-                Title = $"{icon} {title}",
-                Description = $"{alert.Trader} | {alert.Symbol}\nGrew {alert.Growth:+0.00}% → now at {alert.PnLPercentage:+0.00}%",
-                CategoryType = NotificationCategoryType.Alarm,
-                Android = new Plugin.LocalNotification.AndroidOption.AndroidOptions
-                {
-                    ChannelId = "quick_gainer_urgent",
-                    Priority = isQuietHours 
-                        ? Plugin.LocalNotification.AndroidOption.AndroidPriority.Low 
-                        : Plugin.LocalNotification.AndroidOption.AndroidPriority.Max,
-                    VisibilityType = Plugin.LocalNotification.AndroidOption.AndroidVisibilityType.Public,
-                    LedColor = alert.IsExplosion ? Android.Graphics.Color.Red : Android.Graphics.Color.Orange,
-                    TimeoutAfter = TimeSpan.FromSeconds(60),
-                    VibrationPattern = isQuietHours ? null : new long[] { 0, 500, 200, 500, 200, 500 },
-                    AutoCancel = true,
-                    Ongoing = false
-                }
-            };
-            
-            await LocalNotificationCenter.Current.Show(notification);
-            
-            if (!isQuietHours)
-            {
-                WakeScreen();
-            }
-        });
-    }
-    
-    private void WakeScreen()
-    {
-#if ANDROID
-        try
-        {
-            var context = Android.App.Application.Context;
-            var powerManager = context.GetSystemService(Android.Content.Context.PowerService) as Android.OS.PowerManager;
-            
-            if (powerManager != null && !powerManager.IsInteractive)
-            {
-                var wakeLock = powerManager.NewWakeLock(
-                    Android.OS.WakeLockFlags.ScreenBright | 
-                    Android.OS.WakeLockFlags.AcquireCausesWakeup,
-                    "BinanceMonitor::AlertWake");
-                wakeLock?.Acquire(5000);
-            }
-        }
-        catch { }
-#endif
-    }
-
     private void OnPositionsReceived(List<Position> positions)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -191,20 +125,25 @@ public partial class MainPage : ContentPage
 
                 if (existingGroup != null)
                 {
-                    var positionKeys = traderPositions.Select(p => p.Symbol).ToHashSet();
+                    var positionKeys = traderPositions.Select(p => p.UniqueKey).ToHashSet();
                     
                     for (int i = existingGroup.Count - 1; i >= 0; i--)
                     {
-                        if (!positionKeys.Contains(existingGroup[i].Symbol))
+                        if (!positionKeys.Contains(existingGroup[i].UniqueKey))
                             existingGroup.RemoveAt(i);
                     }
 
                     foreach (var pos in traderPositions)
                     {
-                        var existing = existingGroup.FirstOrDefault(p => p.Symbol == pos.Symbol);
+                        _alertService.EnsureDefaultAlert(pos.UniqueKey);
+                        pos.AlertIndicator = _alertService.GetAlertIndicator(pos.UniqueKey);
+                        _alertService.CheckAlerts(pos);
+                        
+                        var existing = existingGroup.FirstOrDefault(p => p.UniqueKey == pos.UniqueKey);
                         if (existing != null)
                         {
                             existing.UpdateFrom(pos);
+                            existing.AlertIndicator = pos.AlertIndicator;
                         }
                         else
                         {
@@ -216,6 +155,12 @@ public partial class MainPage : ContentPage
                 }
                 else
                 {
+                    foreach (var pos in traderPositions)
+                    {
+                        _alertService.EnsureDefaultAlert(pos.UniqueKey);
+                        pos.AlertIndicator = _alertService.GetAlertIndicator(pos.UniqueKey);
+                        _alertService.CheckAlerts(pos);
+                    }
                     _groupedPositions.Add(new TraderGroup(traderName, traderPositions));
                 }
             }
@@ -254,7 +199,35 @@ public partial class MainPage : ContentPage
         await _webSocket.ConnectAsync(url, string.IsNullOrEmpty(token) ? null : token);
     }
 
-    private async void OnSettingsClicked(object? sender, EventArgs e)
+    private async void OnMenuClicked(object? sender, EventArgs e)
+    {
+        var action = await DisplayActionSheet(
+            "Menu",
+            "Cancel",
+            null,
+            "🔄 Refresh Pages",
+            "📊 Portfolio Analysis",
+            "🔌 Restart Chrome",
+            "⚙️ Settings");
+            
+        switch (action)
+        {
+            case "🔄 Refresh Pages":
+                OnRefreshClicked(sender, e);
+                break;
+            case "📊 Portfolio Analysis":
+                OnPortfolioAnalysisClicked(sender, e);
+                break;
+            case "🔌 Restart Chrome":
+                OnRestartClicked(sender, e);
+                break;
+            case "⚙️ Settings":
+                await ShowSettingsMenu();
+                break;
+        }
+    }
+    
+    private async Task ShowSettingsMenu()
     {
         var currentUrl = Preferences.Get(UrlKey, DefaultUrl);
         var currentToken = Preferences.Get(TokenKey, "");
@@ -357,7 +330,103 @@ public partial class MainPage : ContentPage
         }
     }
     
-    private async void OnPositionTapped(object? sender, TappedEventArgs e)
+    private void ShowLoading(string text = "Analyzing...")
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            LoadingLabel.Text = text;
+            LoadingOverlay.IsVisible = true;
+        });
+    }
+    
+    private void HideLoading()
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            LoadingOverlay.IsVisible = false;
+        });
+    }
+    
+    private Position? FindPositionByKey(string uniqueKey)
+    {
+        foreach (var group in _groupedPositions)
+        {
+            var pos = group.FirstOrDefault(p => p.UniqueKey == uniqueKey);
+            if (pos != null) return pos;
+        }
+        return null;
+    }
+    
+    private async void OnPositionMenuClicked(object? sender, EventArgs e)
+    {
+        if (sender is Button button && button.CommandParameter is string positionKey)
+        {
+            var position = FindPositionByKey(positionKey);
+            if (position == null) return;
+            
+            var existingAlerts = _alertService.GetAlerts(positionKey);
+            var alertsInfo = existingAlerts.Count > 0 
+                ? $" ({existingAlerts.Count} alerts)"
+                : "";
+            
+            var posInfo = $"{position.Symbol} ({position.Side})";
+            
+            var action = await DisplayActionSheet(
+                $"📊 {posInfo}{alertsInfo}",
+                "Cancel",
+                null,
+                "🤖 AI Analysis",
+                "🔔 Set Alert",
+                "📈 Setup TP/SL",
+                "❌ Close Position");
+                
+            switch (action)
+            {
+                case "🤖 AI Analysis":
+                    await DoAIAnalysis(position);
+                    break;
+                case "🔔 Set Alert":
+                    await ShowAlertMenu(positionKey, position);
+                    break;
+                case "📈 Setup TP/SL":
+                    if (!_webSocket.IsConnected)
+                    {
+                        await DisplayAlert("Not Connected", "Connect to server first", "OK");
+                        return;
+                    }
+                    ShowLoading($"Opening TP/SL for {position.Symbol}...");
+                    await _webSocket.SendClickTPSLAsync(position.Trader, position.Symbol, position.Size);
+                    break;
+                case "❌ Close Position":
+                    if (!_webSocket.IsConnected)
+                    {
+                        await DisplayAlert("Not Connected", "Connect to server first", "OK");
+                        return;
+                    }
+                    // Click the Close Position link (column 10)
+                    ShowLoading($"Opening Close Position for {position.Symbol}...");
+                    await _webSocket.SendClosePositionAsync(position.Trader, position.Symbol, position.Size);
+                    HideLoading();
+                    
+                    // Wait a moment for modal to open
+                    await Task.Delay(500);
+                    
+                    // Then ask for confirmation
+                    var keepOpen = await DisplayAlert("❌ Close Position Opened", 
+                        $"Close Position dialog is now open for {position.Symbol} ({position.Size}).\n\nDo you want to keep it open?", 
+                        "Yes, Keep Open", "No, Close It");
+                    
+                    if (!keepOpen)
+                    {
+                        // Close the modal
+                        await _webSocket.SendCloseModalAsync(position.Trader);
+                    }
+                    break;
+            }
+        }
+    }
+    
+    private async Task DoAIAnalysis(Position position)
     {
         if (!_webSocket.IsConnected)
         {
@@ -365,21 +434,112 @@ public partial class MainPage : ContentPage
             return;
         }
         
-        var symbol = e.Parameter as string;
-        if (string.IsNullOrEmpty(symbol)) return;
+        ShowLoading($"Analyzing {position.Symbol}...");
+        await _webSocket.SendAnalyzeAsync(position.Symbol);
+    }
+    
+    private async Task ShowAlertMenu(string positionKey, Position position)
+    {
+        var existingAlerts = _alertService.GetAlerts(positionKey);
+        var alertsInfo = existingAlerts.Count > 0 
+            ? $"\n\nActive: {string.Join(", ", existingAlerts.Select(a => a.Description))}"
+            : "\n\nDefault: PnL > +5%";
         
-        StatusLabel.Text = $"Analyzing {symbol}...";
-        StatusLabel.TextColor = Color.FromArgb("#a855f7");
+        var posInfo = $"{position.Symbol} ({position.Side})";
         
-        await _webSocket.SendAnalyzeAsync(symbol);
+        var action = await DisplayActionSheet(
+            $"🔔 {posInfo}{alertsInfo}",
+            "Cancel",
+            null,
+            "✏️ Custom PnL %",
+            "📈 PnL > +10%",
+            "📈 PnL > +20%",
+            "📉 PnL < -10%",
+            "📉 PnL < -20%",
+            "🔄 Reset triggered",
+            "🗑️ Remove all");
+            
+        if (action == null || action == "Cancel") return;
+        
+        switch (action)
+        {
+            case "✏️ Custom PnL %":
+                var input = await DisplayPromptAsync(
+                    "Custom Alert",
+                    "Alert when PnL reaches this % (use negative for below):",
+                    initialValue: "5",
+                    keyboard: Keyboard.Numeric);
+                if (decimal.TryParse(input, out var val))
+                {
+                    bool isAbove = val >= 0;
+                    _alertService.AddAlert(positionKey, "pnl_percent", val, isAbove);
+                    await DisplayAlert("✅ Alert Added", $"Will alert when {posInfo} PnL {(isAbove ? ">" : "<")} {val}%", "OK");
+                }
+                break;
+            case "📈 PnL > +10%":
+                _alertService.AddAlert(positionKey, "pnl_percent", 10, true);
+                await DisplayAlert("✅ Alert Added", $"Will alert when {posInfo} PnL > +10%", "OK");
+                break;
+            case "📈 PnL > +20%":
+                _alertService.AddAlert(positionKey, "pnl_percent", 20, true);
+                await DisplayAlert("✅ Alert Added", $"Will alert when {posInfo} PnL > +20%", "OK");
+                break;
+            case "📉 PnL < -10%":
+                _alertService.AddAlert(positionKey, "pnl_percent", -10, false);
+                await DisplayAlert("✅ Alert Added", $"Will alert when {posInfo} PnL < -10%", "OK");
+                break;
+            case "📉 PnL < -20%":
+                _alertService.AddAlert(positionKey, "pnl_percent", -20, false);
+                await DisplayAlert("✅ Alert Added", $"Will alert when {posInfo} PnL < -20%", "OK");
+                break;
+            case "🔄 Reset triggered":
+                _alertService.ResetTriggeredAlerts(positionKey);
+                await DisplayAlert("✅ Reset", $"Triggered alerts for {posInfo} have been reset", "OK");
+                break;
+            case "🗑️ Remove all":
+                _alertService.RemoveAllAlerts(positionKey);
+                await DisplayAlert("✅ Removed", $"All alerts for {posInfo} removed", "OK");
+                break;
+        }
+        
+        UpdateAlertIndicators();
+    }
+    
+    private void UpdateAlertIndicators()
+    {
+        foreach (var group in _groupedPositions)
+        {
+            foreach (var pos in group)
+            {
+                pos.AlertIndicator = _alertService.GetAlertIndicator(pos.UniqueKey);
+            }
+        }
+    }
+    
+    private async void OnPortfolioAnalysisClicked(object? sender, EventArgs e)
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        var positionCount = _groupedPositions.Sum(g => g.Count);
+        if (positionCount == 0)
+        {
+            await DisplayAlert("No Positions", "No positions to analyze", "OK");
+            return;
+        }
+        
+        ShowLoading($"Analyzing {positionCount} positions...\nThis may take a moment");
+        await _webSocket.SendPortfolioAnalysisAsync();
     }
     
     private void OnAnalysisResultReceived(AnalysisResult result)
     {
         MainThread.BeginInvokeOnMainThread(async () =>
         {
-            StatusLabel.Text = "Connected";
-            StatusLabel.TextColor = Color.FromArgb("#22c55e");
+            HideLoading();
             
             var rec = result.Recommendation.ToUpper();
             var icon = rec switch
@@ -391,7 +551,6 @@ public partial class MainPage : ContentPage
             };
             
             var confidenceBar = new string('█', result.Confidence / 10) + new string('░', 10 - result.Confidence / 10);
-            
             var displayRec = rec == "CLOSE" ? "SELL" : rec;
             
             await DisplayAlert(
@@ -402,5 +561,172 @@ public partial class MainPage : ContentPage
                 "OK"
             );
         });
+    }
+    
+    private void OnPortfolioAnalysisResultReceived(PortfolioAnalysisResult result)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            try
+            {
+                HideLoading();
+                
+                var insightsText = "";
+                foreach (var insight in result.Insights)
+                {
+                    var rec = insight.Recommendation.ToUpper();
+                    var icon = rec switch
+                    {
+                        "SELL" or "CLOSE" => "🔴",
+                        "STAY" or "HOLD" => "🟢",
+                        "BUY" => "💚",
+                        _ => "⚪"
+                    };
+                    
+                    insightsText += $"{icon} {insight.Symbol} ({insight.Trader})\n";
+                    insightsText += $"   {insight.Insight}\n";
+                    if (!string.IsNullOrEmpty(insight.MarketData))
+                        insightsText += $"   {insight.MarketData}\n\n";
+                }
+                
+                var totalPnLText = result.TotalPnL >= 0 ? $"+{result.TotalPnL:F2}" : $"{result.TotalPnL:F2}";
+                
+                var fullText = $"📊 {result.TotalPositions} positions | {totalPnLText} USDT\n\n" +
+                               $"{result.Summary}\n\n" +
+                               $"─────────────────\n" +
+                               $"{insightsText}";
+                
+                await DisplayAlert("📈 Portfolio Analysis", fullText, "OK");
+            }
+            catch (Exception ex)
+            {
+                await DisplayAlert("Error", $"Failed to display analysis: {ex.Message}", "OK");
+            }
+        });
+    }
+    
+    private void OnTPSLClickResultReceived(string trader, string symbol, bool success, string message)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            HideLoading();
+            
+            if (!success)
+            {
+                await DisplayAlert("❌ TP/SL", $"Could not open TP/SL for {symbol}.\n\n{message}", "OK");
+            }
+            // Don't show success message since we'll show the confirmation dialog
+        });
+    }
+    
+    private void OnClosePositionResultReceived(string trader, string symbol, bool success, string message)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            HideLoading();
+            
+            if (!success)
+            {
+                await DisplayAlert("❌ Close Position", $"Could not open Close Position for {symbol}.\n\n{message}", "OK");
+            }
+            // Don't show success message since we'll show the confirmation dialog
+        });
+    }
+    
+    private void OnAvgPnLResultReceived(AvgPnLResult result)
+    {
+        MainThread.BeginInvokeOnMainThread(() =>
+        {
+            if (!result.Success)
+            {
+                ShowToast("No data yet - keep app running");
+                return;
+            }
+            
+            var icon = result.AvgPnL >= 0 ? "📈" : "📉";
+            var toastText = $"{icon} 5m Avg: {result.AvgPnL:+0.00;-0.00} ({result.AvgPnLPercent:+0.00;-0.00}%)";
+            
+            ShowToast(toastText);
+        });
+    }
+    
+    private async void ShowToast(string message)
+    {
+        // Create a toast label
+        var toast = new Label
+        {
+            Text = message,
+            FontSize = 16,
+            FontAttributes = FontAttributes.Bold,
+            TextColor = Colors.White,
+            HorizontalTextAlignment = TextAlignment.Center,
+            VerticalTextAlignment = TextAlignment.Center
+        };
+        
+        // Add rounded corners using a Border
+        var border = new Border
+        {
+            Content = toast,
+            StrokeShape = new RoundRectangle { CornerRadius = 25 },
+            BackgroundColor = Color.FromArgb("#333333"),
+            Stroke = Colors.Transparent,
+            Padding = new Thickness(24, 14),
+            HorizontalOptions = LayoutOptions.Center,
+            VerticalOptions = LayoutOptions.End,
+            Margin = new Thickness(20, 0, 20, 80),
+            Shadow = new Shadow
+            {
+                Brush = Colors.Black,
+                Offset = new Point(0, 4),
+                Radius = 8,
+                Opacity = 0.3f
+            }
+        };
+        
+        // Create an overlay grid that spans all rows
+        var overlay = new Grid
+        {
+            InputTransparent = true, // Allow taps to pass through
+            HorizontalOptions = LayoutOptions.Fill,
+            VerticalOptions = LayoutOptions.Fill
+        };
+        overlay.Children.Add(border);
+        
+        // Add to the main grid, spanning all rows
+        if (Content is Grid mainGrid)
+        {
+            Grid.SetRowSpan(overlay, 3);
+            mainGrid.Children.Add(overlay);
+            
+            // Animate in
+            border.Opacity = 0;
+            border.TranslationY = 50;
+            
+            await Task.WhenAll(
+                border.FadeTo(1, 200),
+                border.TranslateTo(0, 0, 200, Easing.CubicOut)
+            );
+            
+            // Wait then fade out
+            await Task.Delay(2000);
+            
+            await Task.WhenAll(
+                border.FadeTo(0, 300),
+                border.TranslateTo(0, 30, 300, Easing.CubicIn)
+            );
+            
+            // Remove
+            mainGrid.Children.Remove(overlay);
+        }
+    }
+    
+    private async void OnPositionTapped(object? sender, EventArgs e)
+    {
+        if (sender is View view && view.BindingContext is Position position)
+        {
+            if (!_webSocket.IsConnected) return;
+            
+            await _webSocket.SendGetAvgPnLAsync(position.UniqueKey);
+        }
     }
 }

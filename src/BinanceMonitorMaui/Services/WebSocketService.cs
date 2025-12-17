@@ -16,6 +16,11 @@ namespace BinanceMonitorMaui.Services
         public event Action<string, string, bool>? OnAlert;
         public event Action<QuickGainerAlert>? OnQuickGainer;
         public event Action<AnalysisResult>? OnAnalysisResult;
+        public event Action<PortfolioAnalysisResult>? OnPortfolioAnalysisResult;
+        public event Action<string, string, bool, string>? OnTPSLClickResult;
+        public event Action<string, bool, string>? OnCloseModalResult;
+        public event Action<string, string, bool, string>? OnClosePositionResult;
+        public event Action<AvgPnLResult>? OnAvgPnLResult;
 
         public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
@@ -168,6 +173,67 @@ namespace BinanceMonitorMaui.Services
                         System.Diagnostics.Debug.WriteLine($"[WS] Got analysis: {result.Symbol} = {result.Recommendation}");
                         OnAnalysisResult?.Invoke(result);
                         break;
+                        
+                    case "portfolio_analysis_result":
+                        var portfolioResult = new PortfolioAnalysisResult
+                        {
+                            Analysis = message.analysis ?? "",
+                            Summary = message.summary ?? "",
+                            TotalPositions = message.totalPositions ?? 0,
+                            TotalPnL = message.totalPnL ?? 0,
+                            Insights = (message.insights ?? new List<PositionInsightMsg>())
+                                .Select(i => new PositionInsight
+                                {
+                                    Symbol = i.symbol ?? "",
+                                    Trader = i.trader ?? "",
+                                    Recommendation = i.recommendation ?? "",
+                                    Insight = i.insight ?? "",
+                                    MarketData = i.marketData ?? ""
+                                }).ToList()
+                        };
+                        System.Diagnostics.Debug.WriteLine($"[WS] Got portfolio analysis: {portfolioResult.TotalPositions} positions");
+                        OnPortfolioAnalysisResult?.Invoke(portfolioResult);
+                        break;
+                        
+                    case "tpsl_click_result":
+                        var tpslTrader = message.trader ?? "";
+                        var tpslSymbol = message.symbol ?? "";
+                        var tpslSuccess = message.success ?? false;
+                        var tpslMessage = message.message ?? "";
+                        System.Diagnostics.Debug.WriteLine($"[WS] TP/SL click result: {tpslSymbol} = {tpslSuccess}");
+                        OnTPSLClickResult?.Invoke(tpslTrader, tpslSymbol, tpslSuccess, tpslMessage);
+                        break;
+                        
+                    case "close_modal_result":
+                        var modalTrader = message.trader ?? "";
+                        var modalSuccess = message.success ?? false;
+                        var modalMessage = message.message ?? "";
+                        System.Diagnostics.Debug.WriteLine($"[WS] Close Modal result: {modalSuccess}");
+                        OnCloseModalResult?.Invoke(modalTrader, modalSuccess, modalMessage);
+                        break;
+                        
+                    case "close_position_result":
+                        var closePosTrader = message.trader ?? "";
+                        var closePosSymbol = message.symbol ?? "";
+                        var closePosSuccess = message.success ?? false;
+                        var closePosMessage = message.message ?? "";
+                        System.Diagnostics.Debug.WriteLine($"[WS] Close Position result: {closePosSymbol} = {closePosSuccess}");
+                        OnClosePositionResult?.Invoke(closePosTrader, closePosSymbol, closePosSuccess, closePosMessage);
+                        break;
+                        
+                    case "avg_pnl_result":
+                        var avgPnLInfo = new AvgPnLResult
+                        {
+                            Success = message.success ?? false,
+                            UniqueKey = message.uniqueKey ?? "",
+                            AvgPnL = message.avgPnL ?? 0,
+                            AvgPnLPercent = message.avgPnLPercent ?? 0,
+                            DataPoints = message.dataPoints ?? 0,
+                            Message = message.message ?? ""
+                        };
+                        System.Diagnostics.Debug.WriteLine($"[WS] Avg PnL result: {avgPnLInfo.UniqueKey} = {avgPnLInfo.AvgPnL}");
+                        OnAvgPnLResult?.Invoke(avgPnLInfo);
+                        break;
                 }
             }
             catch (Exception ex)
@@ -225,6 +291,71 @@ namespace BinanceMonitorMaui.Services
                 if (_webSocket?.State != WebSocketState.Open) return;
                 
                 var message = System.Text.Json.JsonSerializer.Serialize(new { type = "analyze", symbol = symbol });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendPortfolioAnalysisAsync()
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "portfolio_analysis" });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendClickTPSLAsync(string trader, string symbol, string size)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "click_tpsl", trader, symbol, size });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendCloseModalAsync(string trader)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "close_modal", trader });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendClosePositionAsync(string trader, string symbol, string size)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "close_position", trader, symbol, size });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendGetAvgPnLAsync(string uniqueKey)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "get_avg_pnl", uniqueKey });
                 var buffer = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
             }

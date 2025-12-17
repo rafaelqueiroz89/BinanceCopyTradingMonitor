@@ -3,58 +3,57 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:models="clr-namespace:BinanceMonitorMaui.Models"
              x:Class="BinanceMonitorMaui.MainPage"
-             Title="Binance Monitor"
-             BackgroundColor="#1a1a2e">
+             BackgroundColor="#1a1a2e"
+             Shell.NavBarIsVisible="False">
 
-    <ContentPage.ToolbarItems>
-        <ToolbarItem Text="🔄" Clicked="OnRefreshClicked" />
-        <ToolbarItem Text="🔌" Clicked="OnRestartClicked" />
-        <ToolbarItem Text="⚙" Clicked="OnSettingsClicked" />
-    </ContentPage.ToolbarItems>
-
-    <Grid RowDefinitions="Auto,*" Padding="8">
+    <Grid RowDefinitions="Auto,Auto,*">
         
-        <Frame Grid.Row="0" BackgroundColor="#16213e" CornerRadius="12" Padding="15" BorderColor="Transparent" HasShadow="False">
-            <Frame.GestureRecognizers>
-                <TapGestureRecognizer Tapped="OnSettingsClicked" />
-            </Frame.GestureRecognizers>
-            <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*">
-                <HorizontalStackLayout Grid.Row="0" Grid.ColumnSpan="2" HorizontalOptions="Center" Spacing="8">
-                    <Label x:Name="StatusLabel" Text="Disconnected" FontSize="14" FontAttributes="Bold" TextColor="#e94560" VerticalOptions="Center"/>
-                    <Label x:Name="PositionCountLabel" Text="" FontSize="12" TextColor="#888" VerticalOptions="Center"/>
-                </HorizontalStackLayout>
-                
-                <VerticalStackLayout Grid.Row="1" Grid.Column="0" Margin="0,10,0,0">
+        <!-- Custom Header: Status Left, Menu Right -->
+        <Grid Grid.Row="0" Padding="16,12" BackgroundColor="#0f0f1a" ColumnDefinitions="*,Auto">
+            <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">
+                <Label x:Name="StatusLabel" Text="Disconnected" FontSize="16" FontAttributes="Bold" TextColor="#e94560" VerticalOptions="Center"/>
+                <Label x:Name="PositionCountLabel" Text="" FontSize="13" TextColor="#888" VerticalOptions="Center"/>
+            </HorizontalStackLayout>
+            <Button Grid.Column="1" Text="☰" FontSize="24" BackgroundColor="Transparent" TextColor="White" 
+                    WidthRequest="50" HeightRequest="44" Padding="0" Clicked="OnMenuClicked"/>
+        </Grid>
+        
+        <!-- PnL Summary Card -->
+        <Frame Grid.Row="1" Margin="8,4,8,4" BackgroundColor="#16213e" CornerRadius="12" Padding="12" BorderColor="Transparent" HasShadow="False">
+            <Grid ColumnDefinitions="*,*">
+                <VerticalStackLayout Grid.Column="0">
                     <Label Text="Total PnL" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
-                    <Label x:Name="TotalPnLLabel" Text="0.00" FontSize="18" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
+                    <Label x:Name="TotalPnLLabel" Text="0.00" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
                 </VerticalStackLayout>
-                <VerticalStackLayout Grid.Row="1" Grid.Column="1" Margin="0,10,0,0">
+                <VerticalStackLayout Grid.Column="1">
                     <Label Text="Avg %" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
-                    <Label x:Name="TotalPnLPercentLabel" Text="0.00%" FontSize="18" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
+                    <Label x:Name="TotalPnLPercentLabel" Text="0.00%" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
                 </VerticalStackLayout>
             </Grid>
         </Frame>
         
-        <CollectionView x:Name="PositionsCollection" Grid.Row="1" Margin="0,8,0,0" BackgroundColor="Transparent" IsGrouped="True">
+        <!-- Positions List -->
+        <CollectionView x:Name="PositionsCollection" Grid.Row="2" Margin="8,4,8,0" BackgroundColor="Transparent" IsGrouped="True">
             <CollectionView.GroupHeaderTemplate>
                 <DataTemplate x:DataType="models:TraderGroup">
-                    <Grid Padding="12,16,12,4">
+                    <Grid Padding="4,10,4,2">
                         <Grid ColumnDefinitions="*,Auto">
-                            <Label Text="{Binding TraderName}" FontSize="13" FontAttributes="Bold" TextColor="#64748b" VerticalOptions="Center"/>
-                            <Label Grid.Column="1" Text="{Binding PnLSummary}" FontSize="12" FontAttributes="Bold" TextColor="{Binding PnLColor}" VerticalOptions="Center"/>
+                            <Label Text="{Binding TraderName}" FontSize="12" FontAttributes="Bold" TextColor="#64748b" VerticalOptions="Center"/>
+                            <Label Grid.Column="1" Text="{Binding PnLSummary}" FontSize="11" FontAttributes="Bold" TextColor="{Binding PnLColor}" VerticalOptions="Center"/>
                         </Grid>
                     </Grid>
                 </DataTemplate>
             </CollectionView.GroupHeaderTemplate>
             <CollectionView.ItemTemplate>
                 <DataTemplate x:DataType="models:Position">
-                    <Frame Margin="0,3" Padding="12" BackgroundColor="#16213e" CornerRadius="10" BorderColor="Transparent" HasShadow="False">
+                    <Frame Margin="0,2" Padding="10,8" BackgroundColor="#16213e" CornerRadius="8" BorderColor="Transparent" HasShadow="False">
                         <Frame.GestureRecognizers>
-                            <TapGestureRecognizer Tapped="OnPositionTapped" CommandParameter="{Binding Symbol}"/>
+                            <TapGestureRecognizer Tapped="OnPositionTapped"/>
                         </Frame.GestureRecognizers>
-                        <Grid ColumnDefinitions="*,Auto">
-                            <VerticalStackLayout Grid.Column="0" Spacing="2">
-                                <Label Text="{Binding Symbol}" FontAttributes="Bold" FontSize="15" TextColor="White"/>
+                        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                            <!-- Position Info -->
+                            <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                                <Label Text="{Binding Symbol}" FontAttributes="Bold" FontSize="14" TextColor="White"/>
                                 <Label FontSize="10" TextColor="#888">
                                     <Label.FormattedText>
                                         <FormattedString>
@@ -65,7 +64,19 @@
                                     </Label.FormattedText>
                                 </Label>
                             </VerticalStackLayout>
-                            <Label Grid.Column="1" Text="{Binding PnLDisplay}" FontSize="14" FontAttributes="Bold" VerticalOptions="Center" TextColor="{Binding PnLColor}"/>
+                            
+                            <!-- Alert Indicator -->
+                            <Label Grid.Column="1" Text="{Binding AlertIndicator}" FontSize="10" VerticalOptions="Center" 
+                                   TextColor="#f59e0b" Margin="4,0"/>
+                            
+                            <!-- PnL -->
+                            <Label Grid.Column="2" Text="{Binding PnLDisplay}" FontSize="13" FontAttributes="Bold" 
+                                   VerticalOptions="Center" TextColor="{Binding PnLColor}" Margin="4,0"/>
+                            
+                            <!-- Hamburger Menu -->
+                            <Button Grid.Column="3" Text="⋮" FontSize="20" HeightRequest="36" WidthRequest="36" 
+                                    BackgroundColor="Transparent" TextColor="#888" Padding="0"
+                                    Clicked="OnPositionMenuClicked" CommandParameter="{Binding UniqueKey}"/>
                         </Grid>
                     </Frame>
                 </DataTemplate>
@@ -75,6 +86,13 @@
             </CollectionView.EmptyView>
         </CollectionView>
         
+        <!-- Loading Overlay -->
+        <Grid x:Name="LoadingOverlay" Grid.RowSpan="3" BackgroundColor="#CC000000" IsVisible="False">
+            <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="20">
+                <ActivityIndicator IsRunning="True" Color="#a855f7" WidthRequest="60" HeightRequest="60"/>
+                <Label x:Name="LoadingLabel" Text="Analyzing..." FontSize="18" TextColor="White" HorizontalTextAlignment="Center"/>
+            </VerticalStackLayout>
+        </Grid>
     </Grid>
 
 </ContentPage>
