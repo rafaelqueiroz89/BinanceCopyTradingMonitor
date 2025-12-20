@@ -14,6 +14,8 @@ public partial class MainPage : ContentPage
     private const string TokenKey = "websocket_token";
     private const string DefaultUrl = "ws://192.168.1.100:8765/";
     private bool _isConnecting;
+    private DateTime? _connectionStartTime;
+    private IDispatcherTimer? _connectionTimer;
 
 	public MainPage()
 	{
@@ -33,6 +35,9 @@ public partial class MainPage : ContentPage
         _webSocket.OnAvgPnLResult += OnAvgPnLResultReceived;
         
         _alertService.OnAlertTriggered += OnCustomAlertTriggered;
+        
+        // Register alert service with AppShell for flyout menu
+        AppShell.Instance?.SetAlertService(_alertService);
 
         Dispatcher.Dispatch(async () => await ConnectToSavedUrl());
     }
@@ -54,17 +59,32 @@ public partial class MainPage : ContentPage
             {
                 var hasToken = !string.IsNullOrEmpty(Preferences.Get(TokenKey, ""));
                 var statusText = hasToken ? "Connected 🔒" : "Connected";
-                StatusLabel.Text = statusText;
-                StatusLabel.TextColor = Color.FromArgb("#4ade80");
+                
+                // Green dot for connected
+                StatusDot.Fill = Color.FromArgb("#4ade80");
+                
+                // Start tracking connection time
+                _connectionStartTime = DateTime.Now;
+                StartConnectionTimer();
                 
                 StartBackgroundService();
                 UpdateServiceNotification(statusText);
+                
+                // Update flyout status
+                AppShell.Instance?.UpdateConnectionStatus(true, statusText);
             }
             else
             {
                 var statusText = message == "Auth failed" ? "Auth Failed" : "Disconnected";
-                StatusLabel.Text = statusText;
-                StatusLabel.TextColor = Color.FromArgb("#e94560");
+                
+                // Red dot for disconnected
+                StatusDot.Fill = Color.FromArgb("#e94560");
+                
+                // Stop tracking connection time
+                StopConnectionTimer();
+                _connectionStartTime = null;
+                LastUpdateLabel.Text = "";
+                
                 PositionCountLabel.Text = "";
                 _groupedPositions.Clear();
                 TotalPnLLabel.Text = "0.00";
@@ -74,12 +94,57 @@ public partial class MainPage : ContentPage
                 
                 UpdateServiceNotification(statusText);
                 
+                // Update flyout status
+                AppShell.Instance?.UpdateConnectionStatus(false, statusText);
+                
                 if (message != "Auth failed")
                 {
                     Dispatcher.DispatchDelayed(TimeSpan.FromSeconds(5), async () => await ConnectToSavedUrl());
                 }
             }
         });
+    }
+    
+    private void StartConnectionTimer()
+    {
+        StopConnectionTimer();
+        
+        _connectionTimer = Dispatcher.CreateTimer();
+        _connectionTimer.Interval = TimeSpan.FromSeconds(1);
+        _connectionTimer.Tick += (s, e) => UpdateConnectionTime();
+        _connectionTimer.Start();
+        
+        // Update immediately
+        UpdateConnectionTime();
+    }
+    
+    private void StopConnectionTimer()
+    {
+        _connectionTimer?.Stop();
+        _connectionTimer = null;
+    }
+    
+    private void UpdateConnectionTime()
+    {
+        if (_connectionStartTime == null) return;
+        
+        var elapsed = DateTime.Now - _connectionStartTime.Value;
+        
+        string timeText;
+        if (elapsed.TotalHours >= 1)
+        {
+            timeText = $"{(int)elapsed.TotalHours}h {elapsed.Minutes:D2}m";
+        }
+        else if (elapsed.TotalMinutes >= 1)
+        {
+            timeText = $"{elapsed.Minutes}m {elapsed.Seconds:D2}s";
+        }
+        else
+        {
+            timeText = $"{elapsed.Seconds}s";
+        }
+        
+        LastUpdateLabel.Text = timeText;
     }
 
     private void StartBackgroundService()
@@ -164,7 +229,7 @@ public partial class MainPage : ContentPage
                 }
             }
 
-            PositionCountLabel.Text = $"({positions.Count})";
+            PositionCountLabel.Text = $"{positions.Count} positions";
         });
     }
 
@@ -190,97 +255,116 @@ public partial class MainPage : ContentPage
         
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            StatusLabel.Text = "Connecting...";
-            StatusLabel.TextColor = Color.FromArgb("#f59e0b");
+            // Orange dot for connecting
+            StatusDot.Fill = Color.FromArgb("#f59e0b");
             UpdateServiceNotification("Connecting...");
+            AppShell.Instance?.UpdateConnectionStatus(false, "Connecting...");
         });
         
         await _webSocket.ConnectAsync(url, string.IsNullOrEmpty(token) ? null : token);
     }
 
-    private async void OnMenuClicked(object? sender, EventArgs e)
+    private void OnSwipeHintTapped(object? sender, EventArgs e)
     {
-        var action = await DisplayActionSheet(
-            "Menu",
-            "Cancel",
-            null,
-            "🔄 Refresh Pages",
-            "📊 Portfolio Analysis",
-            "🔌 Restart Chrome",
-            "⚙️ Settings");
-            
-        switch (action)
-        {
-            case "🔄 Refresh Pages":
-                OnRefreshClicked(sender, e);
-                break;
-            case "📊 Portfolio Analysis":
-                OnPortfolioAnalysisClicked(sender, e);
-                break;
-            case "🔌 Restart Chrome":
-                OnRestartClicked(sender, e);
-                break;
-            case "⚙️ Settings":
-                await ShowSettingsMenu();
-                break;
-        }
+        // Open the flyout menu when tapping the hamburger icon
+        Shell.Current.FlyoutIsPresented = true;
     }
     
-    private async Task ShowSettingsMenu()
+    // Public methods for AppShell to call
+    public async Task RefreshPagesAsync()
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        await _webSocket.SendRefreshAsync();
+        ShowToast("Refreshing pages...");
+    }
+    
+    public async Task PortfolioAnalysisAsync()
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        var positionCount = _groupedPositions.Sum(g => g.Count);
+        if (positionCount == 0)
+        {
+            await DisplayAlert("No Positions", "No positions to analyze", "OK");
+            return;
+        }
+        
+        ShowLoading($"Analyzing {positionCount} positions...\nThis may take a moment");
+        await _webSocket.SendPortfolioAnalysisAsync();
+    }
+    
+    public async Task RestartChromeAsync()
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+        
+        bool confirm = await DisplayAlert("Restart Chrome", 
+            "This will kill Chrome and restart the scraper. Continue?", 
+            "Restart", "Cancel");
+            
+        if (!confirm) return;
+        
+        await _webSocket.SendRestartAsync();
+        ShowToast("Restarting Chrome...");
+    }
+    
+    public async Task ChangeServerUrlAsync()
     {
         var currentUrl = Preferences.Get(UrlKey, DefaultUrl);
-        var currentToken = Preferences.Get(TokenKey, "");
-        var quietStatus = _alertService.QuietHoursEnabled 
-            ? $"🔕 Quiet Hours ({_alertService.QuietStartHour:00}:00-{_alertService.QuietEndHour:00}:00)" 
-            : "🔔 Quiet Hours (Off)";
-        
-        var action = await DisplayActionSheet("Settings", "Cancel", null, 
-            quietStatus,
-            "Change Server URL", 
-            "Change Token", 
-            "Clear Token");
-        
-        switch (action)
+        var newUrl = await DisplayPromptAsync(
+            "Server URL",
+            "WebSocket URL:",
+            initialValue: currentUrl,
+            keyboard: Keyboard.Url);
+            
+        if (!string.IsNullOrEmpty(newUrl) && newUrl != currentUrl)
         {
-            case var s when s == quietStatus:
-                await ShowQuietHoursMenu();
-                break;
-                
-            case "Change Server URL":
-                var newUrl = await DisplayPromptAsync(
-                    "Server URL",
-                    "WebSocket URL:",
-                    initialValue: currentUrl,
-                    keyboard: Keyboard.Url);
-                    
-                if (!string.IsNullOrEmpty(newUrl) && newUrl != currentUrl)
-                {
-                    Preferences.Set(UrlKey, newUrl);
-                    await ReconnectAsync();
-                }
-                break;
-                
-            case "Change Token":
-                var newToken = await DisplayPromptAsync(
-                    "Auth Token",
-                    "Enter token (leave empty for no auth):",
-                    initialValue: currentToken);
-                    
-                if (newToken != null && newToken != currentToken)
-                {
-                    Preferences.Set(TokenKey, newToken);
-                    await ReconnectAsync();
-                }
-                break;
-                
-            case "Clear Token":
-                Preferences.Set(TokenKey, "");
-                await ReconnectAsync();
-                break;
+            Preferences.Set(UrlKey, newUrl);
+            await ReconnectAsync();
         }
     }
     
-    private async Task ShowQuietHoursMenu()
+    public async Task ChangeTokenAsync()
+    {
+        var currentToken = Preferences.Get(TokenKey, "");
+        
+        var action = await DisplayActionSheet("Auth Token", "Cancel", null,
+            "Set/Change Token",
+            "Clear Token");
+            
+        if (action == "Set/Change Token")
+        {
+            var newToken = await DisplayPromptAsync(
+                "Auth Token",
+                "Enter token:",
+                initialValue: currentToken);
+                
+            if (newToken != null && newToken != currentToken)
+            {
+                Preferences.Set(TokenKey, newToken);
+                await ReconnectAsync();
+            }
+        }
+        else if (action == "Clear Token")
+        {
+            Preferences.Set(TokenKey, "");
+            await ReconnectAsync();
+        }
+    }
+    
+    public async Task ShowQuietHoursMenuAsync()
     {
         var enabled = _alertService.QuietHoursEnabled;
         var start = _alertService.QuietStartHour;
@@ -351,6 +435,9 @@ public partial class MainPage : ContentPage
                 ShowToast("Quiet hours set: 23:00-07:00");
                 break;
         }
+        
+        // Update the flyout label
+        AppShell.Instance?.UpdateQuietHoursLabel();
     }
     
     private async Task ReconnectAsync()
@@ -361,58 +448,6 @@ public partial class MainPage : ContentPage
         await ConnectToSavedUrl();
     }
 
-    private async void OnRefreshClicked(object? sender, EventArgs e)
-    {
-        if (!_webSocket.IsConnected)
-        {
-            await DisplayAlert("Not Connected", "Connect to server first", "OK");
-            return;
-        }
-        
-        await _webSocket.SendRefreshAsync();
-        
-        var originalText = StatusLabel.Text;
-        var originalColor = StatusLabel.TextColor;
-        StatusLabel.Text = "Refreshing...";
-        StatusLabel.TextColor = Color.FromArgb("#f59e0b");
-        
-        await Task.Delay(2000);
-        
-        if (_webSocket.IsConnected)
-        {
-            StatusLabel.Text = originalText;
-            StatusLabel.TextColor = originalColor;
-        }
-    }
-    
-    private async void OnRestartClicked(object? sender, EventArgs e)
-    {
-        if (!_webSocket.IsConnected)
-        {
-            await DisplayAlert("Not Connected", "Connect to server first", "OK");
-            return;
-        }
-        
-        bool confirm = await DisplayAlert("Restart Chrome", 
-            "This will kill Chrome and restart the scraper. Continue?", 
-            "Restart", "Cancel");
-            
-        if (!confirm) return;
-        
-        await _webSocket.SendRestartAsync();
-        
-        StatusLabel.Text = "Restarting Chrome...";
-        StatusLabel.TextColor = Color.FromArgb("#f59e0b");
-        
-        await Task.Delay(5000);
-        
-        if (_webSocket.IsConnected)
-        {
-            StatusLabel.Text = "Connected";
-            StatusLabel.TextColor = Color.FromArgb("#22c55e");
-        }
-    }
-    
     private void ShowLoading(string text = "Analyzing...")
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -599,25 +634,6 @@ public partial class MainPage : ContentPage
         }
     }
     
-    private async void OnPortfolioAnalysisClicked(object? sender, EventArgs e)
-    {
-        if (!_webSocket.IsConnected)
-        {
-            await DisplayAlert("Not Connected", "Connect to server first", "OK");
-            return;
-        }
-        
-        var positionCount = _groupedPositions.Sum(g => g.Count);
-        if (positionCount == 0)
-        {
-            await DisplayAlert("No Positions", "No positions to analyze", "OK");
-            return;
-        }
-        
-        ShowLoading($"Analyzing {positionCount} positions...\nThis may take a moment");
-        await _webSocket.SendPortfolioAnalysisAsync();
-    }
-    
     private void OnAnalysisResultReceived(AnalysisResult result)
     {
         MainThread.BeginInvokeOnMainThread(async () =>
@@ -727,7 +743,7 @@ public partial class MainPage : ContentPage
             }
             
             var icon = result.AvgPnL >= 0 ? "📈" : "📉";
-            var toastText = $"{icon} 5m Avg: {result.AvgPnL:+0.00;-0.00} ({result.AvgPnLPercent:+0.00;-0.00}%)";
+            var toastText = $"{icon} 1h Avg: {result.AvgPnL:+0.00;-0.00} ({result.AvgPnLPercent:+0.00;-0.00}%)";
             
             ShowToast(toastText);
         });

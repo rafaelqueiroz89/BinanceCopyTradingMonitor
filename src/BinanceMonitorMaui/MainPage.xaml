@@ -8,14 +8,20 @@
 
     <Grid RowDefinitions="Auto,Auto,*">
         
-        <!-- Custom Header: Status Left, Menu Right -->
-        <Grid Grid.Row="0" Padding="16,12" BackgroundColor="#0f0f1a" ColumnDefinitions="*,Auto">
-            <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">
-                <Label x:Name="StatusLabel" Text="Disconnected" FontSize="16" FontAttributes="Bold" TextColor="#e94560" VerticalOptions="Center"/>
-                <Label x:Name="PositionCountLabel" Text="" FontSize="13" TextColor="#888" VerticalOptions="Center"/>
-            </HorizontalStackLayout>
-            <Button Grid.Column="1" Text="☰" FontSize="24" BackgroundColor="Transparent" TextColor="White" 
-                    WidthRequest="50" HeightRequest="44" Padding="0" Clicked="OnMenuClicked"/>
+        <!-- Compact Header: Swipe indicator, Status Dot, Position Count -->
+        <Grid Grid.Row="0" Padding="12,8" BackgroundColor="#0f0f1a" ColumnDefinitions="Auto,Auto,*,Auto">
+            <!-- Swipe hint -->
+            <Label Grid.Column="0" Text="☰" FontSize="18" TextColor="#555" VerticalOptions="Center" Margin="0,0,8,0">
+                <Label.GestureRecognizers>
+                    <TapGestureRecognizer Tapped="OnSwipeHintTapped"/>
+                </Label.GestureRecognizers>
+            </Label>
+            <!-- Status Dot -->
+            <Ellipse x:Name="StatusDot" Grid.Column="1" Fill="#e94560" WidthRequest="12" HeightRequest="12" VerticalOptions="Center"/>
+            <!-- Position Count -->
+            <Label x:Name="PositionCountLabel" Grid.Column="2" Text="" FontSize="13" TextColor="#888" VerticalOptions="Center" Margin="10,0,0,0"/>
+            <!-- Last Update Time -->
+            <Label x:Name="LastUpdateLabel" Grid.Column="3" Text="" FontSize="11" TextColor="#555" VerticalOptions="Center"/>
         </Grid>
         
         <!-- PnL Summary Card -->

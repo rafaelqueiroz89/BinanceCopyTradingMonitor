@@ -5,7 +5,112 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
     xmlns:local="clr-namespace:BinanceMonitorMaui"
     Shell.NavBarIsVisible="False"
-    Shell.FlyoutBehavior="Disabled">
+    Shell.FlyoutBehavior="Flyout"
+    FlyoutBackgroundColor="#0f0f1a"
+    FlyoutWidth="280">
+    
+    <!-- Flyout Header -->
+    <Shell.FlyoutHeader>
+        <Grid HeightRequest="120" BackgroundColor="#16213e" Padding="20">
+            <VerticalStackLayout VerticalOptions="Center">
+                <Label Text="📊 Binance Monitor" FontSize="22" FontAttributes="Bold" TextColor="White"/>
+                <Label x:Name="FlyoutStatusLabel" Text="Connected" FontSize="13" TextColor="#4ade80" Margin="0,4,0,0"/>
+            </VerticalStackLayout>
+        </Grid>
+    </Shell.FlyoutHeader>
+
+    <!-- Flyout Menu Items -->
+    <Shell.FlyoutContent>
+        <ScrollView BackgroundColor="#0f0f1a">
+            <VerticalStackLayout Padding="0" Spacing="0">
+                <!-- Menu Header spacing -->
+                <BoxView HeightRequest="8" Color="Transparent"/>
+                
+                <!-- Refresh Pages -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutRefreshClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🔄" FontSize="20"/>
+                        <Label Text="Refresh Pages" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Portfolio Analysis -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutPortfolioClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="📊" FontSize="20"/>
+                        <Label Text="Portfolio Analysis" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Restart Chrome -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutRestartClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🔌" FontSize="20"/>
+                        <Label Text="Restart Chrome" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Divider -->
+                <BoxView HeightRequest="1" Color="#333" Margin="20,12"/>
+                
+                <!-- Test Notification -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutTestNotificationClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🔔" FontSize="20"/>
+                        <Label Text="Test Notification" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Quiet Hours -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutQuietHoursClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🔕" FontSize="20"/>
+                        <Label x:Name="QuietHoursLabel" Text="Quiet Hours" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Divider -->
+                <BoxView HeightRequest="1" Color="#333" Margin="20,12"/>
+                
+                <!-- Server URL -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutServerUrlClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🌐" FontSize="20"/>
+                        <Label Text="Server URL" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+                
+                <!-- Auth Token -->
+                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
+                    <Grid.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnFlyoutTokenClicked"/>
+                    </Grid.GestureRecognizers>
+                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
+                        <Label Text="🔐" FontSize="20"/>
+                        <Label Text="Auth Token" FontSize="16" TextColor="White" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Grid>
+            </VerticalStackLayout>
+        </ScrollView>
+    </Shell.FlyoutContent>
 
     <ShellContent
         ContentTemplate="{DataTemplate local:MainPage}"

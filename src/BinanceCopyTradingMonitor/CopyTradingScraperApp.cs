@@ -346,7 +346,7 @@ namespace BinanceCopyTradingMonitor
                 _webSocketServer.OnGetAvgPnLRequested += (uniqueKey) =>
                 {
                     Console.WriteLine($"[AVG PNL] Request for {uniqueKey}");
-                    return Get5MinAvgPnL(uniqueKey);
+                    return Get1HourAvgPnL(uniqueKey);
                 };
 
                 bool started = await _webSocketServer.StartAsync();
@@ -486,12 +486,12 @@ namespace BinanceCopyTradingMonitor
                 _pnlHistory.Remove(key);
         }
         
-        public (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message) Get5MinAvgPnL(string uniqueKey)
+        public (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message) Get1HourAvgPnL(string uniqueKey)
         {
             if (!_pnlHistory.ContainsKey(uniqueKey) || _pnlHistory[uniqueKey].Count == 0)
                 return (false, 0, 0, 0, "No history data");
             
-            var cutoff = DateTime.Now.AddMinutes(-5);
+            var cutoff = DateTime.Now.AddHours(-1);
             var recent = _pnlHistory[uniqueKey].Where(x => x.Time > cutoff).ToList();
             
             if (recent.Count == 0)
