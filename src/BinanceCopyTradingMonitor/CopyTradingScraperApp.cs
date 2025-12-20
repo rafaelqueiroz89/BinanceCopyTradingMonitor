@@ -442,7 +442,7 @@ namespace BinanceCopyTradingMonitor
                 PositionAmt = p.Size,
                 EntryPrice = "0",
                 MarkPrice = "0",
-                UnRealizedProfit = $"{p.PnL:+0.00;-0.00} ({p.PnLPercentage:+0.00;-0.00}%)",
+                UnRealizedProfit = p.PnLRaw,  // Use raw scraped value directly
                 Leverage = p.Margin
             }).ToList();
 

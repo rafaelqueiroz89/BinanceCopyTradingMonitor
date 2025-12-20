@@ -39,10 +39,9 @@ public partial class MainPage : ContentPage
     
     private void OnCustomAlertTriggered(string symbol, string message)
     {
-        MainThread.BeginInvokeOnMainThread(async () =>
-        {
-            await DisplayAlert($"🔔 Alert: {symbol}", message, "OK");
-        });
+        // Notifications are now sent via AlertService.SendNotification()
+        // No popup needed - the notification will appear in the tray
+        System.Diagnostics.Debug.WriteLine($"[Alert] {symbol}: {message}");
     }
 
     private void OnConnectionChanged(bool connected, string message)
@@ -231,11 +230,22 @@ public partial class MainPage : ContentPage
     {
         var currentUrl = Preferences.Get(UrlKey, DefaultUrl);
         var currentToken = Preferences.Get(TokenKey, "");
+        var quietStatus = _alertService.QuietHoursEnabled 
+            ? $"🔕 Quiet Hours ({_alertService.QuietStartHour:00}:00-{_alertService.QuietEndHour:00}:00)" 
+            : "🔔 Quiet Hours (Off)";
         
-        var action = await DisplayActionSheet("Settings", "Cancel", null, "Change Server URL", "Change Token", "Clear Token");
+        var action = await DisplayActionSheet("Settings", "Cancel", null, 
+            quietStatus,
+            "Change Server URL", 
+            "Change Token", 
+            "Clear Token");
         
         switch (action)
         {
+            case var s when s == quietStatus:
+                await ShowQuietHoursMenu();
+                break;
+                
             case "Change Server URL":
                 var newUrl = await DisplayPromptAsync(
                     "Server URL",
@@ -266,6 +276,79 @@ public partial class MainPage : ContentPage
             case "Clear Token":
                 Preferences.Set(TokenKey, "");
                 await ReconnectAsync();
+                break;
+        }
+    }
+    
+    private async Task ShowQuietHoursMenu()
+    {
+        var enabled = _alertService.QuietHoursEnabled;
+        var start = _alertService.QuietStartHour;
+        var end = _alertService.QuietEndHour;
+        
+        var statusText = enabled ? "ON" : "OFF";
+        var currentRange = $"{start:00}:00 - {end:00}:00";
+        
+        var action = await DisplayActionSheet(
+            $"Quiet Hours: {statusText}\n({currentRange})",
+            "Cancel",
+            null,
+            enabled ? "🔔 Turn Off" : "🔕 Turn On",
+            "⏰ Set Start Time",
+            "⏰ Set End Time",
+            "🌙 Night (00:00-09:00)",
+            "🌃 Late Night (23:00-07:00)");
+            
+        switch (action)
+        {
+            case "🔔 Turn Off":
+                _alertService.QuietHoursEnabled = false;
+                ShowToast("Quiet hours disabled - alerts active 24/7");
+                break;
+                
+            case "🔕 Turn On":
+                _alertService.QuietHoursEnabled = true;
+                ShowToast($"Quiet hours enabled: {start:00}:00-{end:00}:00");
+                break;
+                
+            case "⏰ Set Start Time":
+                var startInput = await DisplayPromptAsync(
+                    "Quiet Hours Start",
+                    "Enter hour (0-23):",
+                    initialValue: start.ToString(),
+                    keyboard: Keyboard.Numeric);
+                if (int.TryParse(startInput, out int newStart) && newStart >= 0 && newStart <= 23)
+                {
+                    _alertService.QuietStartHour = newStart;
+                    ShowToast($"Quiet hours: {newStart:00}:00-{end:00}:00");
+                }
+                break;
+                
+            case "⏰ Set End Time":
+                var endInput = await DisplayPromptAsync(
+                    "Quiet Hours End",
+                    "Enter hour (0-23):",
+                    initialValue: end.ToString(),
+                    keyboard: Keyboard.Numeric);
+                if (int.TryParse(endInput, out int newEnd) && newEnd >= 0 && newEnd <= 23)
+                {
+                    _alertService.QuietEndHour = newEnd;
+                    ShowToast($"Quiet hours: {start:00}:00-{newEnd:00}:00");
+                }
+                break;
+                
+            case "🌙 Night (00:00-09:00)":
+                _alertService.QuietStartHour = 0;
+                _alertService.QuietEndHour = 9;
+                _alertService.QuietHoursEnabled = true;
+                ShowToast("Quiet hours set: 00:00-09:00");
+                break;
+                
+            case "🌃 Late Night (23:00-07:00)":
+                _alertService.QuietStartHour = 23;
+                _alertService.QuietEndHour = 7;
+                _alertService.QuietHoursEnabled = true;
+                ShowToast("Quiet hours set: 23:00-07:00");
                 break;
         }
     }
@@ -728,5 +811,5 @@ public partial class MainPage : ContentPage
             
             await _webSocket.SendGetAvgPnLAsync(position.UniqueKey);
         }
-    }
+	}
 }

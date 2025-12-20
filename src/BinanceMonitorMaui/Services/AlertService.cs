@@ -1,4 +1,5 @@
 using BinanceMonitorMaui.Models;
+using Plugin.LocalNotification;
 using System.Text.Json;
 
 namespace BinanceMonitorMaui.Services
@@ -6,14 +7,83 @@ namespace BinanceMonitorMaui.Services
     public class AlertService
     {
         private const string AlertsKey = "position_alerts_v2";
+        private const string QuietStartKey = "quiet_hours_start";
+        private const string QuietEndKey = "quiet_hours_end";
+        private const string QuietEnabledKey = "quiet_hours_enabled";
+        
         private Dictionary<string, List<PositionAlert>> _alerts = new();
         private HashSet<string> _knownPositions = new();
+        private int _notificationId = 1000;
         
         public event Action<string, string>? OnAlertTriggered;
+        
+        // Quiet hours settings (default: 00:00 to 09:00)
+        public int QuietStartHour 
+        { 
+            get => Preferences.Get(QuietStartKey, 0);
+            set => Preferences.Set(QuietStartKey, value);
+        }
+        
+        public int QuietEndHour 
+        { 
+            get => Preferences.Get(QuietEndKey, 9);
+            set => Preferences.Set(QuietEndKey, value);
+        }
+        
+        public bool QuietHoursEnabled
+        {
+            get => Preferences.Get(QuietEnabledKey, true);
+            set => Preferences.Set(QuietEnabledKey, value);
+        }
         
         public AlertService()
         {
             LoadAlerts();
+        }
+        
+        public bool IsInQuietHours()
+        {
+            if (!QuietHoursEnabled) return false;
+            
+            var now = DateTime.Now.Hour;
+            
+            if (QuietStartHour <= QuietEndHour)
+            {
+                // Simple case: e.g., 0-9 (midnight to 9am)
+                return now >= QuietStartHour && now < QuietEndHour;
+            }
+            else
+            {
+                // Wrap around case: e.g., 22-6 (10pm to 6am)
+                return now >= QuietStartHour || now < QuietEndHour;
+            }
+        }
+        
+        public void SendNotification(string title, string message)
+        {
+            if (IsInQuietHours()) return;
+            
+            try
+            {
+                var notification = new NotificationRequest
+                {
+                    NotificationId = _notificationId++,
+                    Title = title,
+                    Description = message,
+                    CategoryType = NotificationCategoryType.Status,
+                    Android = new Plugin.LocalNotification.AndroidOption.AndroidOptions
+                    {
+                        Priority = Plugin.LocalNotification.AndroidOption.AndroidPriority.High,
+                        ChannelId = "binance_alerts"
+                    }
+                };
+                
+                LocalNotificationCenter.Current.Show(notification);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Alert] Notification error: {ex.Message}");
+            }
         }
         
         public void EnsureDefaultAlert(string positionKey)
@@ -105,12 +175,12 @@ namespace BinanceMonitorMaui.Services
                     if (alert.IsAbove && position.PnLPercentage >= alert.Threshold)
                     {
                         shouldTrigger = true;
-                        message = $"{position.Symbol}\nPnL reached {position.PnLPercentage:+0.00}%\n(target: >{alert.Threshold}%)";
+                        message = $"PnL reached {position.PnLPercentage:+0.00}% (target: >{alert.Threshold}%)";
                     }
                     else if (!alert.IsAbove && position.PnLPercentage <= alert.Threshold)
                     {
                         shouldTrigger = true;
-                        message = $"{position.Symbol}\nPnL dropped to {position.PnLPercentage:+0.00}%\n(target: <{alert.Threshold}%)";
+                        message = $"PnL dropped to {position.PnLPercentage:+0.00}% (target: <{alert.Threshold}%)";
                     }
                 }
                 
@@ -118,6 +188,11 @@ namespace BinanceMonitorMaui.Services
                 {
                     alert.Triggered = true;
                     SaveAlerts();
+                    
+                    // Send notification to tray instead of popup
+                    SendNotification($"🔔 {position.Symbol}", message);
+                    
+                    // Also fire event for any listeners
                     OnAlertTriggered?.Invoke(position.Symbol, message);
                 }
             }

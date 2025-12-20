@@ -844,25 +844,23 @@ namespace BinanceCopyTradingMonitor
             
             try
             {
-                var text = rawPnL.Replace(",", ".").Trim();
+                // Extract numbers using regex - simpler and more robust
+                var numbers = System.Text.RegularExpressions.Regex.Matches(rawPnL, @"-?[\d,\.]+");
                 
-                var currencyIndex = text.IndexOf("USDT", StringComparison.OrdinalIgnoreCase);
-                if (currencyIndex == -1) currencyIndex = text.IndexOf("USDC", StringComparison.OrdinalIgnoreCase);
-                if (currencyIndex == -1) return;
-                
-                var pnlStr = text.Substring(0, currencyIndex).Trim();
-                if (decimal.TryParse(pnlStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pnlValue))
+                if (numbers.Count >= 1)
                 {
-                    PnL = pnlValue;
+                    // First number is PnL value - remove commas (thousands sep) and normalize
+                    var pnlStr = numbers[0].Value.Replace(",", "");
+                    if (decimal.TryParse(pnlStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pnlValue))
+                    {
+                        PnL = pnlValue;
+                    }
                 }
                 
-                PnLCurrency = text.Substring(currencyIndex, 4);
-                
-                var afterCurrency = text.Substring(currencyIndex + 4);
-                var percentIndex = afterCurrency.IndexOf('%');
-                if (percentIndex > 0)
+                if (numbers.Count >= 2)
                 {
-                    var percentStr = afterCurrency.Substring(0, percentIndex).Trim();
+                    // Second number is percentage
+                    var percentStr = numbers[1].Value.Replace(",", ".");
                     if (decimal.TryParse(percentStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var percentValue))
                     {
                         PnLPercentage = percentValue;
