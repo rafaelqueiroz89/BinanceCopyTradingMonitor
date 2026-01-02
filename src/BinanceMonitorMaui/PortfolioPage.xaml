@@ -64,7 +64,7 @@
                 <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
                     <VerticalStackLayout Spacing="12">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                            <Label Grid.Column="0" Text="📊 Growth Updates" FontSize="18" FontAttributes="Bold" TextColor="White"/>
+                            <Label Grid.Column="0" Text="📊 Growth" FontSize="18" FontAttributes="Bold" TextColor="White"/>
                             <Label Grid.Column="1" Text="Current: 0.00 USDT" FontSize="14" TextColor="#4ade80" VerticalOptions="Center"/>
                         </Grid>
                         
