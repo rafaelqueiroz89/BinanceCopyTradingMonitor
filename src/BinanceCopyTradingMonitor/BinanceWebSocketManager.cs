@@ -33,6 +33,13 @@ namespace BinanceCopyTradingMonitor
         public event Func<string, string, string, Task<bool>>? OnClosePositionRequested; // trader, symbol, size
         public event Func<string, Task<bool>>? OnCloseModalRequested; // trader
         public event Func<string, (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message)>? OnGetAvgPnLRequested; // uniqueKey
+        public event Func<PortfolioData>? OnGetPortfolioRequested;
+        public event Action<decimal, DateTime>? OnUpdateInitialValueRequested;
+        public event Action<decimal, string>? OnAddGrowthUpdateRequested;
+        public event Action<decimal>? OnUpdateCurrentValueRequested;
+        public event Action<decimal, string, string, string>? OnAddWithdrawalRequested;
+        public event Func<string, decimal?, string?, string?, string?, bool>? OnUpdateWithdrawalRequested;
+        public event Func<string, bool>? OnDeleteWithdrawalRequested;
 
         public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
@@ -343,9 +350,147 @@ namespace BinanceCopyTradingMonitor
                             }, cancellationToken);
                         }
                         break;
+                        
+                    case "get_portfolio":
+                        Log("Portfolio data requested");
+                        try
+                        {
+                            if (OnGetPortfolioRequested != null)
+                            {
+                                var portfolio = OnGetPortfolioRequested.Invoke();
+                                Log($"Sending portfolio data: Initial={portfolio.InitialValue}, Current={portfolio.CurrentValue}, Updates={portfolio.GrowthUpdates.Count}, Withdrawals={portfolio.Withdrawals.Count}");
+                                await SendToClientAsync(webSocket, new
+                                {
+                                    type = "portfolio_data",
+                                    initialValue = portfolio.InitialValue,
+                                    initialDate = portfolio.InitialDate.ToString("o"),
+                                    currentValue = portfolio.CurrentValue,
+                                    growthUpdates = portfolio.GrowthUpdates,
+                                    withdrawals = portfolio.Withdrawals
+                                }, cancellationToken);
+                            }
+                            else
+                            {
+                                Log("OnGetPortfolioRequested handler not set!");
+                                await SendToClientAsync(webSocket, new
+                                {
+                                    type = "portfolio_data",
+                                    initialValue = 0m,
+                                    initialDate = DateTime.Now.ToString("o"),
+                                    currentValue = 0m,
+                                    growthUpdates = new List<object>(),
+                                    withdrawals = new List<object>()
+                                }, cancellationToken);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"Error handling get_portfolio: {ex.Message}");
+                            await SendToClientAsync(webSocket, new
+                            {
+                                type = "portfolio_data",
+                                initialValue = 0m,
+                                initialDate = DateTime.Now.ToString("o"),
+                                currentValue = 0m,
+                                growthUpdates = new List<object>(),
+                                withdrawals = new List<object>()
+                            }, cancellationToken);
+                        }
+                        break;
+                        
+                    case "update_initial_value":
+                        var initValue = (decimal?)json?.value ?? 0;
+                        var initDateStr = (string?)json?.date ?? DateTime.Now.ToString("o");
+                        DateTime.TryParse(initDateStr, out var initDate);
+                        Log($"Update initial value: {initValue} USDT (date: {initDate:yyyy-MM-dd})");
+                        OnUpdateInitialValueRequested?.Invoke(initValue, initDate);
+                        await SendToClientAsync(webSocket, new
+                        {
+                            type = "portfolio_update_result",
+                            success = true,
+                            message = "Initial value updated"
+                        }, cancellationToken);
+                        break;
+                        
+                    case "add_growth_update":
+                        var growthValue = (decimal?)json?.value ?? 0;
+                        var growthNotes = (string?)json?.notes ?? "";
+                        Log($"Add growth update: {growthValue} USDT");
+                        OnAddGrowthUpdateRequested?.Invoke(growthValue, growthNotes);
+                        await SendToClientAsync(webSocket, new
+                        {
+                            type = "portfolio_update_result",
+                            success = true,
+                            message = "Growth update added"
+                        }, cancellationToken);
+                        break;
+                        
+                    case "update_current_value":
+                        var currentValue = (decimal?)json?.value ?? 0;
+                        Log($"Update current value: {currentValue} USDT");
+                        OnUpdateCurrentValueRequested?.Invoke(currentValue);
+                        await SendToClientAsync(webSocket, new
+                        {
+                            type = "portfolio_update_result",
+                            success = true,
+                            message = "Current value updated"
+                        }, cancellationToken);
+                        break;
+                        
+                    case "add_withdrawal":
+                        var withdrawalAmount = (decimal?)json?.amount ?? 0;
+                        var withdrawalCategory = (string?)json?.category ?? "";
+                        var withdrawalDescription = (string?)json?.description ?? "";
+                        var withdrawalCurrency = (string?)json?.currency ?? "USDT";
+                        Log($"Add withdrawal: {withdrawalAmount} {withdrawalCurrency} ({withdrawalCategory})");
+                        OnAddWithdrawalRequested?.Invoke(withdrawalAmount, withdrawalCategory, withdrawalDescription, withdrawalCurrency);
+                        await SendToClientAsync(webSocket, new
+                        {
+                            type = "portfolio_update_result",
+                            success = true,
+                            message = "Withdrawal added"
+                        }, cancellationToken);
+                        break;
+                        
+                    case "update_withdrawal":
+                        var updateId = (string?)json?.id ?? "";
+                        var updateAmount = (decimal?)json?.amount;
+                        var updateCategory = (string?)json?.category;
+                        var updateDescription = (string?)json?.description;
+                        var updateCurrency = (string?)json?.currency;
+                        Log($"Update withdrawal: {updateId}");
+                        if (OnUpdateWithdrawalRequested != null)
+                        {
+                            var updateSuccess = OnUpdateWithdrawalRequested.Invoke(updateId, updateAmount, updateCategory, updateDescription, updateCurrency);
+                            await SendToClientAsync(webSocket, new
+                            {
+                                type = "portfolio_update_result",
+                                success = updateSuccess,
+                                message = updateSuccess ? "Withdrawal updated" : "Withdrawal not found"
+                            }, cancellationToken);
+                        }
+                        break;
+                        
+                    case "delete_withdrawal":
+                        var deleteId = (string?)json?.id ?? "";
+                        Log($"Delete withdrawal: {deleteId}");
+                        if (OnDeleteWithdrawalRequested != null)
+                        {
+                            var deleteSuccess = OnDeleteWithdrawalRequested.Invoke(deleteId);
+                            await SendToClientAsync(webSocket, new
+                            {
+                                type = "portfolio_update_result",
+                                success = deleteSuccess,
+                                message = deleteSuccess ? "Withdrawal deleted" : "Withdrawal not found"
+                            }, cancellationToken);
+                        }
+                        break;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log($"Error handling client message: {ex.Message}\n{ex.StackTrace}");
+            }
         }
 
         private async Task SendCurrentPositionsToClientAsync(WebSocket webSocket, CancellationToken cancellationToken)

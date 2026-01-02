@@ -6,40 +6,51 @@
              BackgroundColor="#1a1a2e"
              Shell.NavBarIsVisible="False">
 
-    <Grid RowDefinitions="Auto,Auto,*">
-        
-        <!-- Compact Header: Swipe indicator, Status Dot, Position Count -->
-        <Grid Grid.Row="0" Padding="12,8" BackgroundColor="#0f0f1a" ColumnDefinitions="Auto,Auto,*,Auto">
-            <!-- Swipe hint -->
-            <Label Grid.Column="0" Text="☰" FontSize="18" TextColor="#555" VerticalOptions="Center" Margin="0,0,8,0">
-                <Label.GestureRecognizers>
-                    <TapGestureRecognizer Tapped="OnSwipeHintTapped"/>
-                </Label.GestureRecognizers>
-            </Label>
-            <!-- Status Dot -->
-            <Ellipse x:Name="StatusDot" Grid.Column="1" Fill="#e94560" WidthRequest="12" HeightRequest="12" VerticalOptions="Center"/>
-            <!-- Position Count -->
-            <Label x:Name="PositionCountLabel" Grid.Column="2" Text="" FontSize="13" TextColor="#888" VerticalOptions="Center" Margin="10,0,0,0"/>
-            <!-- Last Update Time -->
-            <Label x:Name="LastUpdateLabel" Grid.Column="3" Text="" FontSize="11" TextColor="#555" VerticalOptions="Center"/>
+    <Grid RowDefinitions="Auto,*">
+        <!-- Compact Header: Position Count, Time Connected -->
+        <Grid Grid.Row="0" Padding="12,8" BackgroundColor="#0f0f1a" ColumnDefinitions="*,Auto">
+            <!-- Position Count with Status Dot -->
+            <Grid Grid.Column="0" ColumnDefinitions="Auto,*" VerticalOptions="Center" HorizontalOptions="Start">
+                <Ellipse x:Name="StatusDot" Grid.Column="0" WidthRequest="8" HeightRequest="8" 
+                         Fill="#e94560" Margin="0,0,8,0" VerticalOptions="Center"/>
+                <Label x:Name="PositionCountLabel" Grid.Column="1" Text="" FontSize="13" TextColor="#888" VerticalOptions="Center"/>
+            </Grid>
+            <!-- Time Connected -->
+            <Label x:Name="LastUpdateLabel" Grid.Column="1" Text="" FontSize="11" TextColor="#555" VerticalOptions="Center" HorizontalOptions="End"/>
         </Grid>
         
-        <!-- PnL Summary Card -->
-        <Frame Grid.Row="1" Margin="8,4,8,4" BackgroundColor="#16213e" CornerRadius="12" Padding="12" BorderColor="Transparent" HasShadow="False">
-            <Grid ColumnDefinitions="*,*">
-                <VerticalStackLayout Grid.Column="0">
-                    <Label Text="Total PnL" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
-                    <Label x:Name="TotalPnLLabel" Text="0.00" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
-                </VerticalStackLayout>
-                <VerticalStackLayout Grid.Column="1">
-                    <Label Text="Avg %" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
-                    <Label x:Name="TotalPnLPercentLabel" Text="0.00%" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
-                </VerticalStackLayout>
+        <!-- Tab Bar -->
+        <Grid Grid.Row="1" RowDefinitions="Auto,*">
+            <!-- Tab Buttons -->
+            <Grid Grid.Row="0" BackgroundColor="#0f0f1a" ColumnDefinitions="*,*" ColumnSpacing="0">
+                <Button x:Name="PositionsTabButton" Grid.Column="0" Text="Positions" FontSize="14" 
+                        BackgroundColor="#16213e" TextColor="White" CornerRadius="0" 
+                        Clicked="OnTabButtonClicked" CommandParameter="Positions"/>
+                <Button x:Name="PortfolioTabButton" Grid.Column="1" Text="Portfolio" FontSize="14" 
+                        BackgroundColor="#0f0f1a" TextColor="#888" CornerRadius="0" 
+                        Clicked="OnTabButtonClicked" CommandParameter="Portfolio"/>
             </Grid>
-        </Frame>
-        
-        <!-- Positions List -->
-        <CollectionView x:Name="PositionsCollection" Grid.Row="2" Margin="8,4,8,0" BackgroundColor="Transparent" IsGrouped="True">
+            
+            <!-- Tab Content -->
+            <Grid x:Name="TabContent" Grid.Row="1">
+                <!-- Positions Tab Content -->
+                <Grid x:Name="PositionsTab" RowDefinitions="Auto,*">
+                    <!-- PnL Summary Card -->
+                    <Frame Grid.Row="0" Margin="8,4,8,4" BackgroundColor="#16213e" CornerRadius="12" Padding="12" BorderColor="Transparent" HasShadow="False">
+                        <Grid ColumnDefinitions="*,*">
+                            <VerticalStackLayout Grid.Column="0">
+                                <Label Text="Total PnL" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
+                                <Label x:Name="TotalPnLLabel" Text="0.00" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
+                            </VerticalStackLayout>
+                            <VerticalStackLayout Grid.Column="1">
+                                <Label Text="Avg %" FontSize="10" TextColor="#888" HorizontalTextAlignment="Center"/>
+                                <Label x:Name="TotalPnLPercentLabel" Text="0.00%" FontSize="20" FontAttributes="Bold" TextColor="White" HorizontalTextAlignment="Center"/>
+                            </VerticalStackLayout>
+                        </Grid>
+                    </Frame>
+                    
+                    <!-- Positions List -->
+                    <CollectionView x:Name="PositionsCollection" Grid.Row="1" Margin="8,4,8,0" BackgroundColor="Transparent" IsGrouped="True">
             <CollectionView.GroupHeaderTemplate>
                 <DataTemplate x:DataType="models:TraderGroup">
                     <Grid Padding="4,10,4,2">
@@ -87,13 +98,123 @@
                     </Frame>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
-            <CollectionView.EmptyView>
-                <Label Text="No positions" FontSize="14" TextColor="#666" HorizontalOptions="Center" VerticalOptions="Center" Margin="0,50,0,0"/>
-            </CollectionView.EmptyView>
-        </CollectionView>
+                        <CollectionView.EmptyView>
+                            <Label Text="No positions" FontSize="14" TextColor="#666" HorizontalOptions="Center" VerticalOptions="Center" Margin="0,50,0,0"/>
+                        </CollectionView.EmptyView>
+                    </CollectionView>
+                </Grid>
+                
+                <!-- Portfolio Tab Content -->
+                <ScrollView x:Name="PortfolioTab" IsVisible="False" BackgroundColor="#1a1a2e">
+                    <VerticalStackLayout Padding="12" Spacing="10">
+                        <!-- Summary Section -->
+                        <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
+                            <VerticalStackLayout Spacing="10">
+                                <Label Text="💰 Portfolio Summary" FontSize="16" FontAttributes="Bold" TextColor="White"/>
+                            
+                                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="6">
+                                    <Label Grid.Row="0" Grid.Column="0" Text="Initial:" FontSize="12" TextColor="#aaa"/>
+                                    <Label x:Name="PortfolioInitialValueLabel" Grid.Row="0" Grid.Column="1" Text="0.00 USDT" FontSize="12" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                                    
+                                    <Label Grid.Row="1" Grid.Column="0" Text="Initial Date:" FontSize="12" TextColor="#aaa"/>
+                                    <Label x:Name="PortfolioInitialDateLabel" Grid.Row="1" Grid.Column="1" Text="Initial Date: 2024-01-01" FontSize="12" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                                    
+                                    <Label Grid.Row="2" Grid.Column="0" Text="Current:" FontSize="12" TextColor="#aaa"/>
+                                    <Label x:Name="PortfolioCurrentValueLabel" Grid.Row="2" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                                    
+                                    <Label Grid.Row="3" Grid.Column="0" Text="Growth:" FontSize="12" TextColor="#aaa"/>
+                                    <Label x:Name="PortfolioTotalGrowthLabel" Grid.Row="3" Grid.Column="1" Text="+0.00 USDT" FontSize="12" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                                    
+                                    <Label Grid.Row="4" Grid.Column="0" Text="Withdrawals:" FontSize="12" TextColor="#aaa"/>
+                                    <Label x:Name="PortfolioTotalWithdrawalsLabel" Grid.Row="4" Grid.Column="1" Text="0.00 USDT" FontSize="12" FontAttributes="Bold" TextColor="#e94560" HorizontalOptions="End"/>
+                                </Grid>
+                                
+                                <Button x:Name="PortfolioEditInitialValueButton" Text="✏️ Edit Initial" FontSize="11" HeightRequest="32"
+                                        BackgroundColor="#1e3a5f" TextColor="White" CornerRadius="6"
+                                        Clicked="OnPortfolioEditInitialValueClicked" Margin="0,6,0,0"/>
+                            </VerticalStackLayout>
+                        </Frame>
+                        
+                        <!-- Action Buttons - Smaller -->
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="6" RowDefinitions="Auto,Auto">
+                            <Button x:Name="PortfolioUpdateCurrentValueButton" Text="📈 Update" FontSize="10" HeightRequest="32"
+                                    Grid.Column="0" BackgroundColor="#1e3a5f" TextColor="White" CornerRadius="6"
+                                    Clicked="OnPortfolioUpdateCurrentValueClicked"/>
+                            <Button x:Name="PortfolioAddWithdrawalButton" Text="💸 Withdraw" FontSize="10" HeightRequest="32"
+                                    Grid.Column="1" BackgroundColor="#5f1e3a" TextColor="White" CornerRadius="6"
+                                    Clicked="OnPortfolioAddWithdrawalClicked"/>
+                        </Grid>
+                        
+                        <!-- Growth Updates Section -->
+                        <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="12" HasShadow="False">
+                            <VerticalStackLayout Spacing="8">
+                                <Label Text="📊 Growth Updates" FontSize="14" FontAttributes="Bold" TextColor="White"/>
+                                
+                                <CollectionView x:Name="PortfolioGrowthUpdatesCollection" HeightRequest="120">
+                                    <CollectionView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Frame BackgroundColor="#0f0f1a" CornerRadius="6" Padding="8" Margin="0,0,0,4" HasShadow="False">
+                                                <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                                    <Label Grid.Row="0" Grid.Column="0" Text="{Binding Date, StringFormat='{0:MM-dd HH:mm}'}" 
+                                                           FontSize="10" TextColor="#aaa"/>
+                                                    <Label Grid.Row="1" Grid.Column="0" Text="{Binding Value, StringFormat='{0:+0.00;-0.00} USDT'}" 
+                                                           FontSize="12" FontAttributes="Bold" TextColor="#4ade80" Margin="0,2,0,0"/>
+                                                    <Label Grid.Row="1" Grid.Column="1" Text="{Binding Notes}" 
+                                                           FontSize="10" TextColor="#888" Margin="4,2,0,0"/>
+                                                </Grid>
+                                            </Frame>
+                                        </DataTemplate>
+                                    </CollectionView.ItemTemplate>
+                                </CollectionView>
+                                
+                                <Label x:Name="PortfolioNoGrowthUpdatesLabel" Text="No growth updates" 
+                                       FontSize="11" TextColor="#666" HorizontalOptions="Center" Margin="0,4"/>
+                            </VerticalStackLayout>
+                        </Frame>
+                        
+                        <!-- Withdrawals Section -->
+                        <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="12" HasShadow="False">
+                            <VerticalStackLayout Spacing="8">
+                                <Label Text="💸 Withdrawals" FontSize="14" FontAttributes="Bold" TextColor="White"/>
+                                
+                                <CollectionView x:Name="PortfolioWithdrawalsCollection" HeightRequest="150">
+                                    <CollectionView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Frame BackgroundColor="#0f0f1a" CornerRadius="6" Padding="8" Margin="0,0,0,4" HasShadow="False">
+                                                <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
+                                                    <Label Grid.Row="0" Grid.Column="0" Text="{Binding CategoryDisplay}" 
+                                                           FontSize="11" FontAttributes="Bold" TextColor="#4ade80"/>
+                                                    <Label Grid.Row="0" Grid.Column="1" Text="{Binding Date, StringFormat='{0:MM-dd}'}" 
+                                                           FontSize="10" TextColor="#666" HorizontalOptions="End"/>
+                                                    <Button Grid.Row="0" Grid.Column="2" Text="✏️" FontSize="12" HeightRequest="24" WidthRequest="24"
+                                                            BackgroundColor="Transparent" TextColor="#888" Padding="0"
+                                                            Clicked="OnPortfolioEditWithdrawalClicked"/>
+                                                    
+                                                    <Label Grid.Row="1" Grid.Column="0" Text="{Binding Amount, StringFormat='{0:0.00} USDT'}" 
+                                                           FontSize="12" FontAttributes="Bold" TextColor="#e94560" Margin="0,2,0,0"/>
+                                                    <Button Grid.Row="1" Grid.Column="2" Text="🗑️" FontSize="12" HeightRequest="24" WidthRequest="24"
+                                                            BackgroundColor="Transparent" TextColor="#e94560" Padding="0"
+                                                            Clicked="OnPortfolioDeleteWithdrawalClicked"/>
+                                                    
+                                                    <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Description}" 
+                                                           FontSize="10" TextColor="#888" Margin="0,2,0,0"/>
+                                                </Grid>
+                                            </Frame>
+                                        </DataTemplate>
+                                    </CollectionView.ItemTemplate>
+                                </CollectionView>
+                                
+                                <Label x:Name="PortfolioNoWithdrawalsLabel" Text="No withdrawals" 
+                                       FontSize="11" TextColor="#666" HorizontalOptions="Center" Margin="0,4"/>
+                            </VerticalStackLayout>
+                        </Frame>
+                    </VerticalStackLayout>
+                </ScrollView>
+            </Grid>
+        </Grid>
         
         <!-- Loading Overlay -->
-        <Grid x:Name="LoadingOverlay" Grid.RowSpan="3" BackgroundColor="#CC000000" IsVisible="False">
+        <Grid x:Name="LoadingOverlay" Grid.RowSpan="2" BackgroundColor="#CC000000" IsVisible="False">
             <VerticalStackLayout VerticalOptions="Center" HorizontalOptions="Center" Spacing="20">
                 <ActivityIndicator IsRunning="True" Color="#a855f7" WidthRequest="60" HeightRequest="60"/>
                 <Label x:Name="LoadingLabel" Text="Analyzing..." FontSize="18" TextColor="White" HorizontalTextAlignment="Center"/>

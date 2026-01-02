@@ -7,6 +7,19 @@ namespace BinanceMonitorMaui.Services
 {
     public class WebSocketService : IDisposable
     {
+        private static WebSocketService? _instance;
+        public static WebSocketService Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = new WebSocketService();
+                }
+                return _instance;
+            }
+        }
+        
         private ClientWebSocket? _webSocket;
         private CancellationTokenSource? _cts;
 
@@ -21,6 +34,8 @@ namespace BinanceMonitorMaui.Services
         public event Action<string, bool, string>? OnCloseModalResult;
         public event Action<string, string, bool, string>? OnClosePositionResult;
         public event Action<AvgPnLResult>? OnAvgPnLResult;
+        public event Action<PortfolioData>? OnPortfolioDataReceived;
+        public event Action<bool, string>? OnPortfolioUpdateResult;
 
         public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
@@ -124,6 +139,13 @@ namespace BinanceMonitorMaui.Services
                 var message = JsonSerializer.Deserialize<WebSocketMessage>(json, options);
 
                 if (message == null) return;
+
+                // Handle portfolio_data by parsing the original JSON directly
+                if (message.type == "portfolio_data")
+                {
+                    ProcessPortfolioData(json);
+                    return;
+                }
 
                 switch (message.type)
                 {
@@ -234,11 +256,78 @@ namespace BinanceMonitorMaui.Services
                         System.Diagnostics.Debug.WriteLine($"[WS] Avg PnL result: {avgPnLInfo.UniqueKey} = {avgPnLInfo.AvgPnL}");
                         OnAvgPnLResult?.Invoke(avgPnLInfo);
                         break;
+                        
+                        
+                    case "portfolio_update_result":
+                        var updateSuccess = message.success ?? false;
+                        var updateMessage = message.message ?? "";
+                        System.Diagnostics.Debug.WriteLine($"[WS] Portfolio update result: {updateSuccess} - {updateMessage}");
+                        OnPortfolioUpdateResult?.Invoke(updateSuccess, updateMessage);
+                        break;
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[WS] ProcessMessage error: {ex.Message}");
+            }
+        }
+
+        private void ProcessPortfolioData(string json)
+        {
+            try
+            {
+                var portfolioDoc = System.Text.Json.JsonDocument.Parse(json);
+                var root = portfolioDoc.RootElement;
+                
+                var portfolio = new PortfolioData
+                {
+                    InitialValue = root.TryGetProperty("initialValue", out var initVal) ? initVal.GetDecimal() : 0,
+                    InitialDate = root.TryGetProperty("initialDate", out var initDateEl) && DateTime.TryParse(initDateEl.GetString(), out var initDate) 
+                        ? initDate 
+                        : DateTime.Now,
+                    CurrentValue = root.TryGetProperty("currentValue", out var currVal) ? currVal.GetDecimal() : 0,
+                    GrowthUpdates = new List<GrowthUpdate>(),
+                    Withdrawals = new List<Withdrawal>()
+                };
+                
+                // Deserialize growth updates
+                if (root.TryGetProperty("growthUpdates", out var growthEl) && growthEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var item in growthEl.EnumerateArray())
+                    {
+                        portfolio.GrowthUpdates.Add(new GrowthUpdate
+                        {
+                            Id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "",
+                            Date = item.TryGetProperty("date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
+                            Value = item.TryGetProperty("value", out var valEl) ? valEl.GetDecimal() : 0,
+                            Notes = item.TryGetProperty("notes", out var notesEl) ? notesEl.GetString() ?? "" : ""
+                        });
+                    }
+                }
+                
+                // Deserialize withdrawals
+                if (root.TryGetProperty("withdrawals", out var withdrawalsEl) && withdrawalsEl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var item in withdrawalsEl.EnumerateArray())
+                    {
+                        portfolio.Withdrawals.Add(new Withdrawal
+                        {
+                            Id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "",
+                            Date = item.TryGetProperty("date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
+                            Amount = item.TryGetProperty("amount", out var amountEl) ? amountEl.GetDecimal() : 0,
+                            Category = item.TryGetProperty("category", out var catEl) ? catEl.GetString() ?? "" : "",
+                            Description = item.TryGetProperty("description", out var descEl) ? descEl.GetString() ?? "" : "",
+                            Currency = item.TryGetProperty("currency", out var currEl) ? currEl.GetString() ?? "USDT" : "USDT"
+                        });
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"[WS] Portfolio data received: Initial={portfolio.InitialValue}, Current={portfolio.CurrentValue}, Updates={portfolio.GrowthUpdates.Count}, Withdrawals={portfolio.Withdrawals.Count}");
+                OnPortfolioDataReceived?.Invoke(portfolio);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WS] Error parsing portfolio data: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
@@ -356,6 +445,106 @@ namespace BinanceMonitorMaui.Services
                 if (_webSocket?.State != WebSocketState.Open) return;
                 
                 var message = System.Text.Json.JsonSerializer.Serialize(new { type = "get_avg_pnl", uniqueKey });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendGetPortfolioAsync()
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open)
+                {
+                    System.Diagnostics.Debug.WriteLine("[WS] Cannot send get_portfolio - WebSocket not open");
+                    return;
+                }
+                
+                System.Diagnostics.Debug.WriteLine("[WS] Sending get_portfolio request");
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "get_portfolio" });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[WS] Error sending get_portfolio: {ex.Message}");
+            }
+        }
+        
+        public async Task SendUpdateInitialValueAsync(decimal value, DateTime date)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "update_initial_value", value, date = date.ToString("o") });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        
+        public async Task SendUpdateCurrentValueAsync(decimal value)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "update_current_value", value });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendAddWithdrawalAsync(decimal amount, string category, string description, string currency = "USDT", DateTime? date = null)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var withdrawalDate = date ?? DateTime.Now;
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "add_withdrawal", amount, category, description, currency, date = withdrawalDate.ToString("o") });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendUpdateWithdrawalAsync(string id, decimal? amount = null, string? category = null, string? description = null, string? currency = null, DateTime? date = null)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var messageObj = new { type = "update_withdrawal", id, amount, category, description, currency };
+                var messageDict = new Dictionary<string, object?>
+                {
+                    { "type", "update_withdrawal" },
+                    { "id", id }
+                };
+                if (amount.HasValue) messageDict["amount"] = amount.Value;
+                if (category != null) messageDict["category"] = category;
+                if (description != null) messageDict["description"] = description;
+                if (currency != null) messageDict["currency"] = currency;
+                if (date.HasValue) messageDict["date"] = date.Value.ToString("o");
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(messageDict);
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+        
+        public async Task SendDeleteWithdrawalAsync(string id)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+                
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "delete_withdrawal", id });
                 var buffer = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
             }

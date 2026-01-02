@@ -8,6 +8,7 @@ public partial class AppShell : Shell
     public static AppShell? Instance { get; private set; }
     
     private AlertService? _alertService;
+    private WebSocketService? _webSocketService;
     
     public AppShell()
     {
@@ -20,6 +21,13 @@ public partial class AppShell : Shell
         _alertService = alertService;
         UpdateQuietHoursLabel();
     }
+    
+    public void SetWebSocketService(WebSocketService webSocketService)
+    {
+        _webSocketService = webSocketService;
+    }
+    
+    public WebSocketService? GetWebSocketService() => _webSocketService ?? WebSocketService.Instance;
     
     public void UpdateConnectionStatus(bool connected, string message)
     {
@@ -134,5 +142,11 @@ public partial class AppShell : Shell
         {
             await mainPage.ChangeTokenAsync();
         }
+    }
+    
+    private async void OnFlyoutPortfolioTrackerClicked(object? sender, EventArgs e)
+    {
+        Shell.Current.FlyoutIsPresented = false;
+        await Shell.Current.GoToAsync("//PortfolioPage");
     }
 }

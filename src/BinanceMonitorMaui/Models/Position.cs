@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace BinanceMonitorMaui.Models
@@ -285,5 +286,57 @@ namespace BinanceMonitorMaui.Models
         public decimal AvgPnLPercent { get; set; }
         public int DataPoints { get; set; }
         public string Message { get; set; } = "";
+    }
+    
+    public class PortfolioData
+    {
+        public decimal InitialValue { get; set; }
+        public DateTime InitialDate { get; set; }
+        public decimal CurrentValue { get; set; }
+        public List<GrowthUpdate> GrowthUpdates { get; set; } = new();
+        public List<Withdrawal> Withdrawals { get; set; } = new();
+        
+        public decimal TotalGrowth => CurrentValue - InitialValue;
+        public decimal TotalGrowthPercent => InitialValue == 0 ? 0 : ((CurrentValue - InitialValue) / InitialValue) * 100;
+        public decimal TotalWithdrawals => Withdrawals.Sum(w => w.Amount);
+    }
+    
+    public class GrowthUpdate
+    {
+        public string Id { get; set; } = "";
+        public DateTime Date { get; set; }
+        public decimal Value { get; set; }
+        public string Notes { get; set; } = "";
+    }
+    
+    public class Withdrawal
+    {
+        public string Id { get; set; } = "";
+        public DateTime Date { get; set; }
+        public decimal Amount { get; set; }
+        public string Category { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Currency { get; set; } = "USDT";
+        
+        public string CategoryDisplay => Category switch
+        {
+            "credit_card" => "💳 Credit Card",
+            "fiat_eur" => "💶 EUR",
+            "fiat_brl" => "💵 BRL",
+            "fiat_other" => "💱 Fiat",
+            "voucher_uber" => "🍔 Uber Eats",
+            "voucher_other" => "🎫 Voucher",
+            _ => Category
+        };
+        
+        public static class Categories
+        {
+            public const string CreditCard = "credit_card";
+            public const string FiatEur = "fiat_eur";
+            public const string FiatBrl = "fiat_brl";
+            public const string FiatOther = "fiat_other";
+            public const string VoucherUber = "voucher_uber";
+            public const string VoucherOther = "voucher_other";
+        }
     }
 }

@@ -37,6 +37,9 @@ namespace BinanceCopyTradingMonitor
         // Auto-close tracking
         private ClosedPositionsStore _closedPositionsStore = new();
         private HashSet<string> _autoCloseInProgress = new();
+        
+        // Portfolio tracking
+        private PortfolioStore _portfolioStore = new();
 
         private const int WEBSOCKET_PORT = 8765;
 
@@ -273,6 +276,9 @@ namespace BinanceCopyTradingMonitor
                 
                 // Wire up closed positions store logging
                 _closedPositionsStore.OnLog += (msg) => Console.WriteLine(msg);
+                
+                // Wire up portfolio store logging
+                _portfolioStore.OnLog += (msg) => Console.WriteLine(msg);
             }
             catch (Exception ex)
             {
@@ -359,6 +365,49 @@ namespace BinanceCopyTradingMonitor
                 {
                     Console.WriteLine($"[AVG PNL] Request for {uniqueKey}");
                     return Get1HourAvgPnL(uniqueKey);
+                };
+                
+                // Portfolio tracking events
+                _webSocketServer.OnGetPortfolioRequested += () =>
+                {
+                    Console.WriteLine("[PORTFOLIO] Get portfolio data requested");
+                    return _portfolioStore.GetPortfolio();
+                };
+                
+                _webSocketServer.OnUpdateInitialValueRequested += (value, date) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Update initial value: {value} USDT ({date:yyyy-MM-dd})");
+                    _portfolioStore.UpdateInitialValue(value, date);
+                };
+                
+                _webSocketServer.OnAddGrowthUpdateRequested += (value, notes) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Add growth update: {value} USDT");
+                    _portfolioStore.AddGrowthUpdate(value, notes);
+                };
+                
+                _webSocketServer.OnUpdateCurrentValueRequested += (value) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Update current value: {value} USDT");
+                    _portfolioStore.UpdateCurrentValue(value);
+                };
+                
+                _webSocketServer.OnAddWithdrawalRequested += (amount, category, description, currency) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Add withdrawal: {amount} {currency} ({category})");
+                    _portfolioStore.AddWithdrawal(amount, category, description, currency);
+                };
+                
+                _webSocketServer.OnUpdateWithdrawalRequested += (id, amount, category, description, currency) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Update withdrawal: {id}");
+                    return _portfolioStore.UpdateWithdrawal(id, amount, category, description, currency);
+                };
+                
+                _webSocketServer.OnDeleteWithdrawalRequested += (id) =>
+                {
+                    Console.WriteLine($"[PORTFOLIO] Delete withdrawal: {id}");
+                    return _portfolioStore.DeleteWithdrawal(id);
                 };
 
                 bool started = await _webSocketServer.StartAsync();
@@ -631,20 +680,14 @@ namespace BinanceCopyTradingMonitor
         {
             var summary = _closedPositionsStore.GetSummary();
             var todayRecords = _closedPositionsStore.GetToday();
-            var weekName = _closedPositionsStore.GetCurrentWeekName();
-            var availableWeeks = _closedPositionsStore.GetAvailableWeeks();
             
             var details = todayRecords.Count > 0 
                 ? string.Join("\n", todayRecords.Take(15).Select(r => 
                     $"  {r.ClosedAt:HH:mm} | {r.Symbol}: {r.PnL:+0.00;-0.00} ({r.PnLPercent:+0.00;-0.00}%) {(r.WasEdited ? "✏️" : "")}"))
                 : "  No positions closed today";
             
-            var weeksInfo = availableWeeks.Count > 0
-                ? $"\n\n📁 Available weeks: {string.Join(", ", availableWeeks.Take(5).Select(w => w.FileName))}"
-                : "";
-            
             MessageBox.Show(
-                $"📅 Current: {weekName}\n\n{summary}\n\n🕐 Today's closes:\n{details}{weeksInfo}",
+                $"{summary}\n\n📅 Today's closes:\n{details}",
                 "📊 Closed Positions Summary",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information
