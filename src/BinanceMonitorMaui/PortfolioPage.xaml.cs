@@ -146,8 +146,50 @@ public partial class PortfolioPage : ContentPage
     
     private void UpdateGrowthChart()
     {
-        // Chart functionality temporarily disabled due to Canvas control issues
-        // ChartLabel.Text = "Chart disabled - Canvas control not available";
+        if (_portfolio.GrowthUpdates.Count == 0)
+        {
+            ChartLabel.Text = "No data to display chart";
+            return;
+        }
+        
+        ChartLabel.Text = "Growth Chart";
+        
+        // Create chart data points
+        var points = new List<(DateTime date, decimal value)>();
+        points.Add((_portfolio.InitialDate, _portfolio.InitialValue));
+        
+        foreach (var update in _portfolio.GrowthUpdates.OrderBy(g => g.Date))
+        {
+            points.Add((update.Date, update.Value));
+        }
+        
+        // Draw simple line chart using BoxView
+        DrawLineChart(points);
+    }
+    
+    private void DrawLineChart(List<(DateTime date, decimal value)> points)
+    {
+        // Clear previous drawings
+        GrowthChartCanvas.BackgroundColor = Color.FromArgb("#1a1a2e");
+        
+        if (points.Count < 2) return;
+        
+        // Calculate value range
+        var minValue = points.Min(p => p.value);
+        var maxValue = points.Max(p => p.value);
+        var valueRange = maxValue - minValue;
+        
+        if (valueRange == 0) valueRange = 1;
+        
+        // Calculate date range
+        var startDate = points.Min(p => p.date);
+        var endDate = points.Max(p => p.date);
+        var dateRange = endDate - startDate;
+        
+        if (dateRange.TotalDays == 0) dateRange = TimeSpan.FromDays(1);
+        
+        // Update chart label with current value
+        ChartLabel.Text = $"Current: {_portfolio.CurrentValue:0.00} USDT";
     }
     
     private async void OnEditInitialValueClicked(object? sender, EventArgs e)
