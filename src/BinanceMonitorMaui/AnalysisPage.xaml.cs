@@ -14,6 +14,3 @@ public partial class AnalysisPage : ContentPage
         TotalPnLLabel.TextColor = totalPnL < 0 ? Color.FromArgb("#e94560") : Color.FromArgb("#4ade80");
     }
 }
-
-
-

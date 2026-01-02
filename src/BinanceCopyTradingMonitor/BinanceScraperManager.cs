@@ -148,6 +148,59 @@ namespace BinanceCopyTradingMonitor
             }
         }
         
+        public async Task<bool> ConfirmClosePositionAsync(string traderName)
+        {
+            try
+            {
+                Log($"[CLOSE] Confirming close position for {traderName}");
+                
+                if (!_traderPages.TryGetValue(traderName, out var page) || page == null || page.IsClosed)
+                {
+                    Error($"[CLOSE] Page not found for trader: {traderName}");
+                    return false;
+                }
+                
+                // Wait a bit for modal to fully appear
+                await Task.Delay(500);
+                
+                // Click the Confirm button in the close position modal
+                var confirmed = await page.EvaluateFunctionAsync<bool>(@"() => {
+                    // Look for the confirm button in the modal (usually yellow/primary button with 'Confirm' text)
+                    const buttons = document.querySelectorAll('.bn-modal button, .bn-dialog button, [class*=""modal""] button');
+                    for (const btn of buttons) {
+                        const text = (btn.innerText || btn.textContent || '').toLowerCase();
+                        if (text.includes('confirm') || text === 'close') {
+                            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                            return true;
+                        }
+                    }
+                    // Alternative: look for primary/yellow button in modal
+                    const primaryBtn = document.querySelector('.bn-modal .bn-button--primary, .bn-modal [class*=""yellow""], .bn-modal button[class*=""primary""]');
+                    if (primaryBtn) {
+                        primaryBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                        return true;
+                    }
+                    return false;
+                }");
+                
+                if (confirmed)
+                {
+                    Log($"[CLOSE] Successfully confirmed close position");
+                    return true;
+                }
+                else
+                {
+                    Error($"[CLOSE] Could not find confirm button in modal");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"[CLOSE] Error confirming close: {ex.Message}");
+                return false;
+            }
+        }
+        
         public async Task<bool> ClickTPSLButtonAsync(string traderName, string symbol, string size)
         {
             try

@@ -14,6 +14,8 @@ namespace BinanceCopyTradingMonitor
         public string? OpenAiApiKey { get; set; }
         public decimal QuickGainerThreshold { get; set; } = 10m;
         public decimal ExplosionThreshold { get; set; } = 20m;
+        public bool AutoCloseEnabled { get; set; } = true;
+        public decimal AutoCloseThreshold { get; set; } = 10m;  // Close at +10%
     }
     
     public class CopyTradingScraperApp : Form
@@ -31,6 +33,10 @@ namespace BinanceCopyTradingMonitor
         // PnL history tracking (key: UniqueKey, value: list of (timestamp, pnl, pnlPercent))
         private Dictionary<string, List<(DateTime Time, decimal PnL, decimal PnLPercent)>> _pnlHistory = new();
         private const int PNL_HISTORY_MAX_MINUTES = 10;
+        
+        // Auto-close tracking
+        private ClosedPositionsStore _closedPositionsStore = new();
+        private HashSet<string> _autoCloseInProgress = new();
 
         private const int WEBSOCKET_PORT = 8765;
 
@@ -71,6 +77,8 @@ namespace BinanceCopyTradingMonitor
             
             menu.Items.Add(_toggleWidgetItem);
             menu.Items.Add(_toggleConsoleItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("📊 Closed Positions", null, (s, e) => ShowClosedPositionsSummary());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("Refresh Pages", null, (s, e) => { _scraper?.RequestRefresh(); });
             menu.Items.Add("🔄 Restart Chrome", null, (s, e) => RestartScraper());
@@ -252,6 +260,7 @@ namespace BinanceCopyTradingMonitor
                         Console.WriteLine("[CONFIG] OpenAI API key configured");
                         
                     Console.WriteLine($"[CONFIG] Quick Gainer: {_config?.QuickGainerThreshold}% | Explosion: {_config?.ExplosionThreshold}%");
+                    Console.WriteLine($"[CONFIG] Auto-Close: {(_config?.AutoCloseEnabled == true ? $"ON at {_config?.AutoCloseThreshold}%" : "OFF")}");
                 }
                 else
                 {
@@ -261,6 +270,9 @@ namespace BinanceCopyTradingMonitor
                 
                 _analysisService = new CoinAnalysisService(_config?.OpenAiApiKey);
                 _analysisService.OnLog += (msg) => Console.WriteLine(msg);
+                
+                // Wire up closed positions store logging
+                _closedPositionsStore.OnLog += (msg) => Console.WriteLine(msg);
             }
             catch (Exception ex)
             {
@@ -407,6 +419,9 @@ namespace BinanceCopyTradingMonitor
             
             // Track PnL history for each position
             TrackPnLHistory(positions);
+            
+            // Check for auto-close opportunities (only positive PnL positions)
+            _ = CheckAutoClose(positions);
 
             _trayIcon.Text = $"Copy Trading: {positions.Count} positions";
 
@@ -501,6 +516,139 @@ namespace BinanceCopyTradingMonitor
             var avgPnLPercent = recent.Average(x => x.PnLPercent);
             
             return (true, avgPnL, avgPnLPercent, recent.Count, "OK");
+        }
+        
+        // ===== AUTO-CLOSE SYSTEM =====
+        
+        private async Task CheckAutoClose(List<ScrapedPosition> positions)
+        {
+            if (_scraper == null || _config == null || !_config.AutoCloseEnabled) 
+                return;
+            
+            var threshold = _config.AutoCloseThreshold;
+            
+            foreach (var pos in positions)
+            {
+                // ===== SAFETY: NEVER CLOSE RED POSITIONS =====
+                if (pos.PnL <= 0 || pos.PnLPercentage <= 0)
+                    continue;
+                
+                // Only close if above threshold
+                if (pos.PnLPercentage < threshold)
+                    continue;
+                
+                // Generate unique position key (hash based on trader+symbol+side+size, NOT PnL)
+                var positionKey = ClosedPositionRecord.GenerateKey(pos);
+                
+                // Skip if already in progress or already closed in this session
+                if (_autoCloseInProgress.Contains(positionKey))
+                    continue;
+                
+                // Mark as in progress to prevent double-close
+                _autoCloseInProgress.Add(positionKey);
+                
+                var alertType = pos.PnLPercentage >= _config.ExplosionThreshold ? "🚀 EXPLOSION" : "🎯 THRESHOLD";
+                Console.WriteLine($"[AUTO-CLOSE] {alertType}: {pos.Trader} | {pos.Symbol} at {pos.PnLPercentage:+0.00;-0.00}% ({pos.PnL:+0.00;-0.00} {pos.PnLCurrency})");
+                
+                try
+                {
+                    // Step 1: Click Close Position to open modal
+                    var clicked = await _scraper.ClickClosePositionAsync(pos.Trader, pos.Symbol, pos.Size);
+                    
+                    if (!clicked)
+                    {
+                        Console.WriteLine($"[AUTO-CLOSE] ⚠️ Could not click Close Position for {pos.Symbol}");
+                        _autoCloseInProgress.Remove(positionKey);
+                        continue;
+                    }
+                    
+                    // Step 2: Wait for modal to appear and confirm
+                    await Task.Delay(800);
+                    var confirmed = await _scraper.ConfirmClosePositionAsync(pos.Trader);
+                    
+                    if (confirmed)
+                    {
+                        Console.WriteLine($"[AUTO-CLOSE] ✅ Closed {pos.Symbol} at {pos.PnLPercentage:+0.00;-0.00}% ({pos.PnL:+0.00;-0.00} {pos.PnLCurrency})");
+                        
+                        // Record the close
+                        var record = new ClosedPositionRecord
+                        {
+                            PositionKey = positionKey,
+                            Trader = pos.Trader,
+                            Symbol = pos.Symbol,
+                            Side = pos.Side,
+                            Size = pos.Size,
+                            PnL = pos.PnL,
+                            PnLPercent = pos.PnLPercentage,
+                            Currency = pos.PnLCurrency,
+                            ClosedAt = DateTime.Now,
+                            Reason = pos.PnLPercentage >= _config.ExplosionThreshold ? "explosion" : "threshold"
+                        };
+                        
+                        _closedPositionsStore.AddRecord(record);
+                        
+                        // Log summary
+                        Console.WriteLine($"[AUTO-CLOSE] 📊 {_closedPositionsStore.GetSummary()}");
+                        
+                        // Broadcast to MAUI app
+                        if (_webSocketServer != null)
+                        {
+                            await _webSocketServer.BroadcastMessageAsync(new
+                            {
+                                type = "position_auto_closed",
+                                id = record.Id,
+                                positionKey = record.PositionKey,
+                                trader = record.Trader,
+                                symbol = record.Symbol,
+                                side = record.Side,
+                                size = record.Size,
+                                pnl = record.PnL,
+                                pnlPercent = record.PnLPercent,
+                                currency = record.Currency,
+                                closedAt = record.ClosedAt.ToString("o"),
+                                reason = record.Reason,
+                                todayTotal = _closedPositionsStore.GetTodayPnL(),
+                                allTimeTotal = _closedPositionsStore.GetAllTimePnL()
+                            });
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[AUTO-CLOSE] ⚠️ Could not confirm close for {pos.Symbol} - closing modal");
+                        await _scraper.CloseModalAsync(pos.Trader);
+                        _autoCloseInProgress.Remove(positionKey);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[AUTO-CLOSE] ❌ Error: {ex.Message}");
+                    _autoCloseInProgress.Remove(positionKey);
+                }
+            }
+        }
+        
+        private void ShowClosedPositionsSummary()
+        {
+            var summary = _closedPositionsStore.GetSummary();
+            var todayRecords = _closedPositionsStore.GetToday();
+            var weekName = _closedPositionsStore.GetCurrentWeekName();
+            var availableWeeks = _closedPositionsStore.GetAvailableWeeks();
+            
+            var details = todayRecords.Count > 0 
+                ? string.Join("\n", todayRecords.Take(15).Select(r => 
+                    $"  {r.ClosedAt:HH:mm} | {r.Symbol}: {r.PnL:+0.00;-0.00} ({r.PnLPercent:+0.00;-0.00}%) {(r.WasEdited ? "✏️" : "")}"))
+                : "  No positions closed today";
+            
+            var weeksInfo = availableWeeks.Count > 0
+                ? $"\n\n📁 Available weeks: {string.Join(", ", availableWeeks.Take(5).Select(w => w.FileName))}"
+                : "";
+            
+            MessageBox.Show(
+                $"📅 Current: {weekName}\n\n{summary}\n\n🕐 Today's closes:\n{details}{weeksInfo}",
+                "📊 Closed Positions Summary",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
