@@ -143,10 +143,4 @@ public partial class AppShell : Shell
             await mainPage.ChangeTokenAsync();
         }
     }
-    
-    private async void OnFlyoutPortfolioTrackerClicked(object? sender, EventArgs e)
-    {
-        Shell.Current.FlyoutIsPresented = false;
-        await Shell.Current.GoToAsync("//PortfolioPage");
-    }
 }

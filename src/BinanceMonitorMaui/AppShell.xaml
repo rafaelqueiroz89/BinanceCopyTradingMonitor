@@ -48,17 +48,6 @@
                     </HorizontalStackLayout>
                 </Grid>
                 
-                <!-- Portfolio Tracker -->
-                <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
-                    <Grid.GestureRecognizers>
-                        <TapGestureRecognizer Tapped="OnFlyoutPortfolioTrackerClicked"/>
-                    </Grid.GestureRecognizers>
-                    <HorizontalStackLayout Spacing="16" VerticalOptions="Center">
-                        <Label Text="💰" FontSize="20"/>
-                        <Label Text="Portfolio Tracker" FontSize="16" TextColor="White" VerticalOptions="Center"/>
-                    </HorizontalStackLayout>
-                </Grid>
-                
                 <!-- Restart Chrome -->
                 <Grid HeightRequest="52" Padding="20,0" BackgroundColor="#0f0f1a">
                     <Grid.GestureRecognizers>
