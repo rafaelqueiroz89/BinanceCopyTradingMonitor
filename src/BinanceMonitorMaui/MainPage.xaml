@@ -117,7 +117,7 @@
                                     <Label x:Name="PortfolioInitialValueLabel" Grid.Row="0" Grid.Column="1" Text="0.00 USDT" FontSize="12" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
                                     
                                     <Label Grid.Row="1" Grid.Column="0" Text="Initial Date:" FontSize="12" TextColor="#aaa"/>
-                                    <Label x:Name="PortfolioInitialDateLabel" Grid.Row="1" Grid.Column="1" Text="Initial Date: 2024-01-01" FontSize="12" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                                    <Label x:Name="PortfolioInitialDateLabel" Grid.Row="1" Grid.Column="1" Text="2024-01-01" FontSize="12" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
                                     
                                     <Label Grid.Row="2" Grid.Column="0" Text="Current:" FontSize="12" TextColor="#aaa"/>
                                     <Label x:Name="PortfolioCurrentValueLabel" Grid.Row="2" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
@@ -145,10 +145,19 @@
                                     Clicked="OnPortfolioAddWithdrawalClicked"/>
                         </Grid>
                         
-                        <!-- Growth Updates Section -->
+                        <!-- Growth Section -->
                         <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="12" HasShadow="False">
                             <VerticalStackLayout Spacing="8">
-                                <Label Text="📊 Growth Updates" FontSize="14" FontAttributes="Bold" TextColor="White"/>
+                                <Label Text="📊 Growth" FontSize="14" FontAttributes="Bold" TextColor="White"/>
+                                
+                                <!-- Simple Line Graph -->
+                                <Frame BackgroundColor="#0f0f1a" CornerRadius="6" Padding="8" HasShadow="False">
+                                    <Grid>
+                                        <BoxView x:Name="PortfolioGrowthChartCanvas" BackgroundColor="#1a1a2e"/>
+                                        <Label x:Name="PortfolioChartLabel" Text="Growth Chart" FontSize="10" TextColor="#666" 
+                                               HorizontalOptions="Center" VerticalOptions="Center"/>
+                                    </Grid>
+                                </Frame>
                                 
                                 <CollectionView x:Name="PortfolioGrowthUpdatesCollection" HeightRequest="120">
                                     <CollectionView.ItemTemplate>

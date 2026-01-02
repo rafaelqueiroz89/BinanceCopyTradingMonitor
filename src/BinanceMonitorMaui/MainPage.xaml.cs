@@ -898,7 +898,7 @@ public partial class MainPage : ContentPage
     {
         PortfolioInitialValueLabel.Text = $"{_portfolio.InitialValue:0.00} USDT";
         PortfolioCurrentValueLabel.Text = $"{_portfolio.CurrentValue:0.00} USDT";
-        PortfolioInitialDateLabel.Text = $"Initial Date: {_portfolio.InitialDate:yyyy-MM-dd}";
+        PortfolioInitialDateLabel.Text = $"{_portfolio.InitialDate:yyyy-MM-dd}";
         
         var growth = _portfolio.TotalGrowth;
         var growthPercent = _portfolio.TotalGrowthPercent;
@@ -921,6 +921,59 @@ public partial class MainPage : ContentPage
         
         PortfolioNoGrowthUpdatesLabel.IsVisible = _portfolioGrowthUpdates.Count == 0;
         PortfolioNoWithdrawalsLabel.IsVisible = _portfolioWithdrawals.Count == 0;
+        
+        // Update chart
+        UpdatePortfolioGrowthChart();
+    }
+    
+    private void UpdatePortfolioGrowthChart()
+    {
+        if (_portfolio.GrowthUpdates.Count == 0)
+        {
+            PortfolioChartLabel.Text = "No data to display chart";
+            return;
+        }
+        
+        PortfolioChartLabel.Text = "Growth Chart";
+        
+        // Create chart data points starting from initial value and date
+        var points = new List<(DateTime date, decimal value)>();
+        points.Add((_portfolio.InitialDate, _portfolio.InitialValue));
+        
+        foreach (var update in _portfolio.GrowthUpdates.OrderBy(g => g.Date))
+        {
+            points.Add((update.Date, update.Value));
+        }
+        
+        // Draw visual line chart
+        DrawPortfolioVisualLineChart(points);
+    }
+    
+    private void DrawPortfolioVisualLineChart(List<(DateTime date, decimal value)> points)
+    {
+        // Clear previous drawings
+        PortfolioGrowthChartCanvas.BackgroundColor = Color.FromArgb("#1a1a2e");
+        
+        if (points.Count < 2) return;
+        
+        // Calculate value range
+        var minValue = points.Min(p => p.value);
+        var maxValue = points.Max(p => p.value);
+        var valueRange = maxValue - minValue;
+        
+        if (valueRange == 0) valueRange = 1;
+        
+        // Calculate date range
+        var startDate = points.Min(p => p.date);
+        var endDate = points.Max(p => p.date);
+        var dateRange = endDate - startDate;
+        
+        if (dateRange.TotalDays == 0) dateRange = TimeSpan.FromDays(1);
+        
+        // Update chart label with current value and growth info
+        var growth = _portfolio.CurrentValue - _portfolio.InitialValue;
+        var growthPercent = _portfolio.TotalGrowthPercent;
+        PortfolioChartLabel.Text = $"Current: {_portfolio.CurrentValue:0.00} USDT | Growth: {growth:+0.00;-0.00} ({growthPercent:+0.00;-0.00}%)";
     }
     
     private async void OnPortfolioEditInitialValueClicked(object? sender, EventArgs e)
