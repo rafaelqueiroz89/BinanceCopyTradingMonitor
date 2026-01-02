@@ -18,114 +18,130 @@
         <ScrollView Grid.Row="1">
             <ScrollView.GestureRecognizers>
                 <SwipeGestureRecognizer Direction="Left" Swiped="OnSwipeLeft"/>
+                <SwipeGestureRecognizer Direction="Right" Swiped="OnSwipeRight"/>
             </ScrollView.GestureRecognizers>
             <VerticalStackLayout Padding="20" Spacing="20">
                 
                 <!-- Summary Section -->
                 <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="20" HasShadow="False">
                     <VerticalStackLayout Spacing="12">
-                    <Label Text="💰 Portfolio Summary" FontSize="20" FontAttributes="Bold" TextColor="White"/>
-                    
-                    <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="8">
-                        <Label Grid.Row="0" Grid.Column="0" Text="Initial Value:" FontSize="14" TextColor="#aaa"/>
-                        <Label x:Name="InitialValueLabel" Grid.Row="0" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                        <Label Text="💰 Portfolio Summary" FontSize="20" FontAttributes="Bold" TextColor="White"/>
                         
-                        <Label Grid.Row="1" Grid.Column="0" Text="Initial Date:" FontSize="14" TextColor="#aaa"/>
-                        <Label x:Name="InitialDateLabel" Grid.Row="1" Grid.Column="1" Text="Initial Date: 2024-01-01" FontSize="14" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                        <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="16" RowSpacing="8">
+                            <Label Grid.Row="0" Grid.Column="0" Text="Initial Value:" FontSize="14" TextColor="#aaa"/>
+                            <Label x:Name="InitialValueLabel" Grid.Row="0" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                            
+                            <Label Grid.Row="1" Grid.Column="0" Text="Initial Date:" FontSize="14" TextColor="#aaa"/>
+                            <Label x:Name="InitialDateLabel" Grid.Row="1" Grid.Column="1" Text="2024-01-01" FontSize="14" FontAttributes="Bold" TextColor="White" HorizontalOptions="End"/>
+                            
+                            <Label Grid.Row="2" Grid.Column="0" Text="Current Value:" FontSize="14" TextColor="#aaa"/>
+                            <Label x:Name="CurrentValueLabel" Grid.Row="2" Grid.Column="1" Text="0.00 USDT" FontSize="16" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                            
+                            <Label Grid.Row="3" Grid.Column="0" Text="Total Growth:" FontSize="14" TextColor="#aaa"/>
+                            <Label x:Name="TotalGrowthLabel" Grid.Row="3" Grid.Column="1" Text="+0.00 USDT (+0.00%)" FontSize="14" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                            
+                            <Label Grid.Row="4" Grid.Column="0" Text="Total Withdrawals:" FontSize="14" TextColor="#aaa"/>
+                            <Label x:Name="TotalWithdrawalsLabel" Grid.Row="4" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="#e94560" HorizontalOptions="End"/>
+                        </Grid>
                         
-                        <Label Grid.Row="2" Grid.Column="0" Text="Current Value:" FontSize="14" TextColor="#aaa"/>
-                        <Label x:Name="CurrentValueLabel" Grid.Row="2" Grid.Column="1" Text="0.00 USDT" FontSize="16" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                        <Button x:Name="EditInitialValueButton" Text="✏️ Edit Initial Value" 
+                                BackgroundColor="#1e3a5f" TextColor="White" 
+                                Clicked="OnEditInitialValueClicked" Margin="0,8,0,0"/>
+                    </VerticalStackLayout>
+                </Frame>
+                
+                <!-- Action Buttons -->
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                    <Button x:Name="UpdateCurrentValueButton" Text="📈 Update Current Value" 
+                            Grid.Column="0" BackgroundColor="#1e3a5f" TextColor="White" 
+                            Clicked="OnUpdateCurrentValueClicked"/>
+                    <Button x:Name="AddWithdrawalButton" Text="💸 Add Withdrawal" 
+                            Grid.Column="1" BackgroundColor="#5f1e3a" TextColor="White" 
+                            Clicked="OnAddWithdrawalClicked"/>
+                </Grid>
+                
+                <!-- Growth Updates Section -->
+                <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
+                    <VerticalStackLayout Spacing="12">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <Label Grid.Column="0" Text="📊 Growth Updates" FontSize="18" FontAttributes="Bold" TextColor="White"/>
+                            <Label Grid.Column="1" Text="Current: 0.00 USDT" FontSize="14" TextColor="#4ade80" VerticalOptions="Center"/>
+                        </Grid>
                         
-                        <Label Grid.Row="3" Grid.Column="0" Text="Total Growth:" FontSize="14" TextColor="#aaa"/>
-                        <Label x:Name="TotalGrowthLabel" Grid.Row="3" Grid.Column="1" Text="+0.00 USDT (+0.00%)" FontSize="14" FontAttributes="Bold" TextColor="#4ade80" HorizontalOptions="End"/>
+                        <!-- Simple Line Graph -->
+                        <Frame BackgroundColor="#0f0f1a" CornerRadius="8" Padding="12" HasShadow="False">
+                            <Grid>
+                                <BoxView x:Name="GrowthChartCanvas" BackgroundColor="#1a1a2e"/>
+                                <Label x:Name="ChartLabel" Text="Growth Chart" FontSize="12" TextColor="#666" 
+                                       HorizontalOptions="Center" VerticalOptions="Center"/>
+                            </Grid>
+                        </Frame>
                         
-                        <Label Grid.Row="4" Grid.Column="0" Text="Total Withdrawals:" FontSize="14" TextColor="#aaa"/>
-                        <Label x:Name="TotalWithdrawalsLabel" Grid.Row="4" Grid.Column="1" Text="0.00 USDT" FontSize="14" FontAttributes="Bold" TextColor="#e94560" HorizontalOptions="End"/>
-                    </Grid>
-                    
-                    <Button x:Name="EditInitialValueButton" Text="✏️ Edit Initial Value" 
-                            BackgroundColor="#1e3a5f" TextColor="White" 
-                            Clicked="OnEditInitialValueClicked" Margin="0,8,0,0"/>
-                </VerticalStackLayout>
-            </Frame>
-            
-            <!-- Action Buttons -->
-            <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
-                <Button x:Name="UpdateCurrentValueButton" Text="📈 Update Current Value" 
-                        Grid.Column="0" BackgroundColor="#1e3a5f" TextColor="White" 
-                        Clicked="OnUpdateCurrentValueClicked"/>
-            </Grid>
-            
-            <Button x:Name="AddWithdrawalButton" Text="💸 Add Withdrawal" 
-                    BackgroundColor="#5f1e3a" TextColor="White" 
-                    Clicked="OnAddWithdrawalClicked"/>
-            
-            <!-- Growth Updates Section -->
-            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="📊 Growth Updates" FontSize="18" FontAttributes="Bold" TextColor="White"/>
-                    
-                    <CollectionView x:Name="GrowthUpdatesCollection">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate>
-                                <Frame BackgroundColor="#0f0f1a" CornerRadius="8" Padding="12" Margin="0,0,0,8" HasShadow="False">
-                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                        <Label Grid.Row="0" Grid.Column="0" Text="{Binding Date, StringFormat='{0:yyyy-MM-dd HH:mm}'}" 
-                                               FontSize="12" TextColor="#aaa"/>
-                                        <Label Grid.Row="1" Grid.Column="0" Text="{Binding Value, StringFormat='{0:+0.00;-0.00} USDT'}" 
-                                               FontSize="16" FontAttributes="Bold" TextColor="#4ade80" Margin="0,4,0,0"/>
-                                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding Notes}" 
-                                               FontSize="12" TextColor="#888" Margin="8,4,0,0"/>
-                                    </Grid>
-                                </Frame>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                    </CollectionView>
-                    
-                    <Label x:Name="NoGrowthUpdatesLabel" Text="No growth updates yet" 
-                           FontSize="14" TextColor="#666" HorizontalOptions="Center" Margin="0,8"/>
-                </VerticalStackLayout>
-            </Frame>
-            
-            <!-- Withdrawals Section -->
-            <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
-                <VerticalStackLayout Spacing="12">
-                    <Label Text="💸 Withdrawals" FontSize="18" FontAttributes="Bold" TextColor="White"/>
-                    
-                    <CollectionView x:Name="WithdrawalsCollection">
-                        <CollectionView.ItemTemplate>
-                            <DataTemplate>
-                                <Frame BackgroundColor="#0f0f1a" CornerRadius="8" Padding="12" Margin="0,0,0,8" HasShadow="False">
-                                    <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
-                                        <Label Grid.Row="0" Grid.Column="0" Text="{Binding CategoryDisplay}" 
-                                               FontSize="12" FontAttributes="Bold" TextColor="#4ade80"/>
-                                        <Label Grid.Row="0" Grid.Column="1" Text="{Binding Date, StringFormat='{0:MM-dd HH:mm}'}" 
-                                               FontSize="11" TextColor="#666" HorizontalOptions="End"/>
-                                        <Button Grid.Row="0" Grid.Column="2" Text="✏️" FontSize="14" 
-                                                BackgroundColor="Transparent" TextColor="#888" 
-                                                Clicked="OnEditWithdrawalClicked"/>
-                                        
-                                        <Label Grid.Row="1" Grid.Column="0" Text="{Binding Amount, StringFormat='{0:0.00} USDT'}" 
-                                               FontSize="16" FontAttributes="Bold" TextColor="#e94560" Margin="0,4,0,0"/>
-                                        <Button Grid.Row="1" Grid.Column="2" Text="🗑️" FontSize="14" 
-                                                BackgroundColor="Transparent" TextColor="#e94560" 
-                                                Clicked="OnDeleteWithdrawalClicked"/>
-                                        
-                                        <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Description}" 
-                                               FontSize="12" TextColor="#888" Margin="0,4,0,0"/>
-                                    </Grid>
-                                </Frame>
-                            </DataTemplate>
-                        </CollectionView.ItemTemplate>
-                    </CollectionView>
-                    
-                    <Label x:Name="NoWithdrawalsLabel" Text="No withdrawals yet" 
-                           FontSize="14" TextColor="#666" HorizontalOptions="Center" Margin="0,8"/>
-                </VerticalStackLayout>
-            </Frame>
-            
+                        <CollectionView x:Name="GrowthUpdatesCollection">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Frame BackgroundColor="#0f0f1a" CornerRadius="8" Padding="12" Margin="0,0,0,8" HasShadow="False">
+                                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
+                                            <Label Grid.Row="0" Grid.Column="0" Text="{Binding Date, StringFormat='{0:yyyy-MM-dd HH:mm}'}" 
+                                                   FontSize="12" TextColor="#aaa"/>
+                                            <Label Grid.Row="1" Grid.Column="0" Text="{Binding Value, StringFormat='{0:+0.00;-0.00} USDT'}" 
+                                                   FontSize="16" FontAttributes="Bold" TextColor="#4ade80" Margin="0,4,0,0"/>
+                                            <Label Grid.Row="1" Grid.Column="1" Text="{Binding Notes}" 
+                                                   FontSize="12" TextColor="#888" Margin="8,4,0,0"/>
+                                        </Grid>
+                                    </Frame>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                        
+                        <Label x:Name="NoGrowthUpdatesLabel" Text="No growth updates yet" 
+                               FontSize="14" TextColor="#666" HorizontalOptions="Center" Margin="0,8"/>
+                    </VerticalStackLayout>
+                </Frame>
+                
+                <!-- Withdrawals Section -->
+                <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="16" HasShadow="False">
+                    <VerticalStackLayout Spacing="12">
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                            <Label Grid.Column="0" Text="💸 Withdrawals" FontSize="18" FontAttributes="Bold" TextColor="White"/>
+                            <Button Grid.Column="1" Text="📅 Filter" FontSize="12" BackgroundColor="#1e3a5f" TextColor="White" 
+                                    Clicked="OnFilterWithdrawalsClicked"/>
+                            <Button Grid.Column="2" Text="🗑️ Clear" FontSize="12" BackgroundColor="#5f1e3a" TextColor="White" 
+                                    Clicked="OnClearFilterClicked"/>
+                        </Grid>
+                        
+                        <CollectionView x:Name="WithdrawalsCollection" HeightRequest="150">
+                            <CollectionView.ItemTemplate>
+                                <DataTemplate>
+                                    <Frame BackgroundColor="#0f0f1a" CornerRadius="8" Padding="12" Margin="0,0,0,8" HasShadow="False">
+                                        <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
+                                            <Label Grid.Row="0" Grid.Column="0" Text="{Binding CategoryDisplay}" 
+                                                   FontSize="12" FontAttributes="Bold" TextColor="#4ade80"/>
+                                            <Label Grid.Row="0" Grid.Column="1" Text="{Binding Date, StringFormat='{0:MM-dd HH:mm}'}" 
+                                                   FontSize="11" TextColor="#666" HorizontalOptions="End"/>
+                                            <Button Grid.Row="0" Grid.Column="2" Text="✏️" FontSize="14" 
+                                                    BackgroundColor="Transparent" TextColor="#888" 
+                                                    Clicked="OnEditWithdrawalClicked"/>
+                                            
+                                            <Label Grid.Row="1" Grid.Column="0" Text="{Binding Amount, StringFormat='{0:0.00} USDT'}" 
+                                                   FontSize="16" FontAttributes="Bold" TextColor="#e94560" Margin="0,4,0,0"/>
+                                            <Button Grid.Row="1" Grid.Column="2" Text="🗑️" FontSize="14" 
+                                                    BackgroundColor="Transparent" TextColor="#e94560" 
+                                                    Clicked="OnDeleteWithdrawalClicked"/>
+                                            
+                                            <Label Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="{Binding Description}" 
+                                                   FontSize="12" TextColor="#888" Margin="0,4,0,0"/>
+                                        </Grid>
+                                    </Frame>
+                                </DataTemplate>
+                            </CollectionView.ItemTemplate>
+                        </CollectionView>
+                        
+                        <Label x:Name="NoWithdrawalsLabel" Text="No withdrawals yet" 
+                               FontSize="14" TextColor="#666" HorizontalOptions="Center" Margin="0,8"/>
+                    </VerticalStackLayout>
+                </Frame>
             </VerticalStackLayout>
         </ScrollView>
     </Grid>
-    
 </ContentPage>

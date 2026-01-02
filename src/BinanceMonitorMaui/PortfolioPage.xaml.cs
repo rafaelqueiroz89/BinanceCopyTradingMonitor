@@ -115,7 +115,7 @@ public partial class PortfolioPage : ContentPage
     {
         InitialValueLabel.Text = $"{_portfolio.InitialValue:0.00} USDT";
         CurrentValueLabel.Text = $"{_portfolio.CurrentValue:0.00} USDT";
-        InitialDateLabel.Text = $"Initial Date: {_portfolio.InitialDate:yyyy-MM-dd}";
+        InitialDateLabel.Text = $"{_portfolio.InitialDate:yyyy-MM-dd}";
         
         var growth = _portfolio.TotalGrowth;
         var growthPercent = _portfolio.TotalGrowthPercent;
@@ -139,6 +139,15 @@ public partial class PortfolioPage : ContentPage
         
         NoGrowthUpdatesLabel.IsVisible = _growthUpdates.Count == 0;
         NoWithdrawalsLabel.IsVisible = _withdrawals.Count == 0;
+        
+        // Update chart
+        UpdateGrowthChart();
+    }
+    
+    private void UpdateGrowthChart()
+    {
+        // Chart functionality temporarily disabled due to Canvas control issues
+        // ChartLabel.Text = "Chart disabled - Canvas control not available";
     }
     
     private async void OnEditInitialValueClicked(object? sender, EventArgs e)
@@ -352,9 +361,58 @@ public partial class PortfolioPage : ContentPage
         }
     }
     
+    private async void OnFilterWithdrawalsClicked(object? sender, EventArgs e)
+    {
+        var year = await DisplayPromptAsync(
+            "Filter by Year",
+            "Enter year (e.g., 2024):",
+            keyboard: Keyboard.Numeric);
+        
+        if (string.IsNullOrEmpty(year) || !int.TryParse(year, out var yearInt))
+            return;
+        
+        var month = await DisplayPromptAsync(
+            "Filter by Month",
+            "Enter month (1-12):",
+            keyboard: Keyboard.Numeric);
+        
+        if (string.IsNullOrEmpty(month) || !int.TryParse(month, out var monthInt) || monthInt < 1 || monthInt > 12)
+            return;
+        
+        // Filter withdrawals by year and month
+        var filtered = _portfolio.Withdrawals
+            .Where(w => w.Date.Year == yearInt && w.Date.Month == monthInt)
+            .ToList();
+        
+        _withdrawals.Clear();
+        foreach (var withdrawal in filtered)
+        {
+            _withdrawals.Add(withdrawal);
+        }
+        
+        NoWithdrawalsLabel.IsVisible = _withdrawals.Count == 0;
+    }
+    
+    private async void OnClearFilterClicked(object? sender, EventArgs e)
+    {
+        // Clear filter and show all withdrawals
+        _withdrawals.Clear();
+        foreach (var withdrawal in _portfolio.Withdrawals)
+        {
+            _withdrawals.Add(withdrawal);
+        }
+        
+        NoWithdrawalsLabel.IsVisible = _withdrawals.Count == 0;
+    }
+    
     private async void OnSwipeLeft(object? sender, SwipedEventArgs e)
     {
-        await Shell.Current.GoToAsync("//MainPage");
+        await Shell.Current.GoToAsync("//AnalysisPage");
+    }
+    
+    private async void OnSwipeRight(object? sender, SwipedEventArgs e)
+    {
+        await Shell.Current.GoToAsync("//AnalysisPage");
     }
     
     private async void OnBackClicked(object? sender, EventArgs e)
