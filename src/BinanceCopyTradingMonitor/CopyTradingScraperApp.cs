@@ -380,10 +380,10 @@ namespace BinanceCopyTradingMonitor
                     _portfolioStore.UpdateInitialValue(value, date);
                 };
                 
-                _webSocketServer.OnAddGrowthUpdateRequested += (value, notes) =>
+                _webSocketServer.OnAddGrowthUpdateRequested += (value, notes, date) =>
                 {
-                    Console.WriteLine($"[PORTFOLIO] Add growth update: {value} USDT");
-                    _portfolioStore.AddGrowthUpdate(value, notes);
+                    Console.WriteLine($"[PORTFOLIO] Add growth update: {value} USDT (date: {date:yyyy-MM-dd HH:mm})");
+                    _portfolioStore.AddGrowthUpdate(value, notes, date);
                 };
                 
                 _webSocketServer.OnUpdateCurrentValueRequested += (value) =>

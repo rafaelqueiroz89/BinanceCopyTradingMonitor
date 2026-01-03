@@ -98,21 +98,21 @@ namespace BinanceCopyTradingMonitor
             }
         }
         
-        public void AddGrowthUpdate(decimal value, string notes = "")
+        public void AddGrowthUpdate(decimal value, string notes = "", DateTime? date = null)
         {
             lock (_lock)
             {
                 var update = new GrowthUpdate
                 {
                     Id = Guid.NewGuid().ToString(),
-                    Date = DateTime.Now,
+                    Date = date ?? DateTime.Now,
                     Value = value,
                     Notes = notes
                 };
                 _portfolio.GrowthUpdates.Insert(0, update); // Most recent first
                 _portfolio.CurrentValue = value; // Update current value when adding growth update
                 Save();
-                Log($"[PORTFOLIO] Added growth update: {value} USDT");
+                Log($"[PORTFOLIO] Added growth update: {value} USDT (date: {update.Date:yyyy-MM-dd HH:mm})");
             }
         }
         
@@ -201,5 +201,3 @@ namespace BinanceCopyTradingMonitor
         private void Log(string message) => OnLog?.Invoke(message);
     }
 }
-
-

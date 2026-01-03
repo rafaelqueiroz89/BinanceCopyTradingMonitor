@@ -1,5 +1,6 @@
 ﻿using BinanceMonitorMaui.Models;
 using BinanceMonitorMaui.Services;
+using BinanceMonitorMaui.Views;
 using Microsoft.Maui.Controls.Shapes;
 using System.Collections.ObjectModel;
 
@@ -13,6 +14,7 @@ public partial class MainPage : ContentPage
     private readonly ObservableCollection<GrowthUpdate> _portfolioGrowthUpdates = new();
     private readonly ObservableCollection<Withdrawal> _portfolioWithdrawals = new();
     private PortfolioData _portfolio = new();
+    private LineChartView _chartDrawable = new();
     private const string UrlKey = "websocket_url";
     private const string TokenKey = "websocket_token";
     private const string DefaultUrl = "ws://192.168.1.100:8765/";
@@ -843,29 +845,45 @@ public partial class MainPage : ContentPage
     {
         if (sender is Button button && button.CommandParameter is string tabName)
         {
+            // Reset all tab states
+            PositionsTab.IsVisible = false;
+            PortfolioTab.IsVisible = false;
+            WithdrawalsTab.IsVisible = false;
+
+            // Reset all button styles
+            PositionsTabButton.BackgroundColor = Color.FromArgb("#0f0f1a");
+            PositionsTabButton.TextColor = Color.FromArgb("#888");
+            PortfolioTabButton.BackgroundColor = Color.FromArgb("#0f0f1a");
+            PortfolioTabButton.TextColor = Color.FromArgb("#888");
+            WithdrawalsTabButton.BackgroundColor = Color.FromArgb("#0f0f1a");
+            WithdrawalsTabButton.TextColor = Color.FromArgb("#888");
+
             if (tabName == "Positions")
             {
                 PositionsTab.IsVisible = true;
-                PortfolioTab.IsVisible = false;
                 PositionsTabButton.BackgroundColor = Color.FromArgb("#16213e");
                 PositionsTabButton.TextColor = Colors.White;
-                PortfolioTabButton.BackgroundColor = Color.FromArgb("#0f0f1a");
-                PortfolioTabButton.TextColor = Color.FromArgb("#888");
             }
             else if (tabName == "Portfolio")
             {
-                PositionsTab.IsVisible = false;
                 PortfolioTab.IsVisible = true;
                 PortfolioTabButton.BackgroundColor = Color.FromArgb("#16213e");
                 PortfolioTabButton.TextColor = Colors.White;
-                PositionsTabButton.BackgroundColor = Color.FromArgb("#0f0f1a");
-                PositionsTabButton.TextColor = Color.FromArgb("#888");
-                
+
                 // Load portfolio when switching to portfolio tab
                 if (_webSocket.IsConnected)
                 {
                     _ = Task.Run(async () => await _webSocket.SendGetPortfolioAsync());
                 }
+            }
+            else if (tabName == "Withdrawals")
+            {
+                WithdrawalsTab.IsVisible = true;
+                WithdrawalsTabButton.BackgroundColor = Color.FromArgb("#16213e");
+                WithdrawalsTabButton.TextColor = Colors.White;
+
+                // Update withdrawals summary when switching to withdrawals tab
+                UpdateWithdrawalsSummary();
             }
         }
     }
@@ -899,83 +917,81 @@ public partial class MainPage : ContentPage
         PortfolioInitialValueLabel.Text = $"{_portfolio.InitialValue:0.00} USDT";
         PortfolioCurrentValueLabel.Text = $"{_portfolio.CurrentValue:0.00} USDT";
         PortfolioInitialDateLabel.Text = $"{_portfolio.InitialDate:yyyy-MM-dd}";
-        
+
         var growth = _portfolio.TotalGrowth;
         var growthPercent = _portfolio.TotalGrowthPercent;
         PortfolioTotalGrowthLabel.Text = $"{growth:+0.00;-0.00} USDT ({growthPercent:+0.00;-0.00}%)";
         PortfolioTotalGrowthLabel.TextColor = growth >= 0 ? Color.FromArgb("#4ade80") : Color.FromArgb("#e94560");
-        
+
         PortfolioTotalWithdrawalsLabel.Text = $"{_portfolio.TotalWithdrawals:0.00} USDT";
-        
+
+        // Update growth updates collection
         _portfolioGrowthUpdates.Clear();
-        foreach (var update in _portfolio.GrowthUpdates)
+        foreach (var update in _portfolio.GrowthUpdates.OrderByDescending(g => g.Date))
         {
             _portfolioGrowthUpdates.Add(update);
         }
-        
+
+        // Update withdrawals collection
         _portfolioWithdrawals.Clear();
-        foreach (var withdrawal in _portfolio.Withdrawals)
+        foreach (var withdrawal in _portfolio.Withdrawals.OrderByDescending(w => w.Date))
         {
             _portfolioWithdrawals.Add(withdrawal);
         }
-        
+
         PortfolioNoGrowthUpdatesLabel.IsVisible = _portfolioGrowthUpdates.Count == 0;
         PortfolioNoWithdrawalsLabel.IsVisible = _portfolioWithdrawals.Count == 0;
-        
+
         // Update chart
         UpdatePortfolioGrowthChart();
+
+        // Update withdrawals summary
+        UpdateWithdrawalsSummary();
+
+        // Debug logging
+        System.Diagnostics.Debug.WriteLine($"[UI] Portfolio updated: Initial={_portfolio.InitialValue}, Current={_portfolio.CurrentValue}, GrowthUpdates={_portfolio.GrowthUpdates.Count}, Withdrawals={_portfolio.Withdrawals.Count}");
+        System.Diagnostics.Debug.WriteLine($"[UI] Collections: GrowthUpdates={_portfolioGrowthUpdates.Count}, Withdrawals={_portfolioWithdrawals.Count}");
     }
     
     private void UpdatePortfolioGrowthChart()
     {
-        if (_portfolio.GrowthUpdates.Count == 0)
-        {
-            PortfolioChartLabel.Text = "No data to display chart";
-            return;
-        }
-        
-        PortfolioChartLabel.Text = "Growth Chart";
-        
-        // Create chart data points starting from initial value and date
+        // Create chart data points starting from initial value and including current value
         var points = new List<(DateTime date, decimal value)>();
+
+        // Always add initial value
         points.Add((_portfolio.InitialDate, _portfolio.InitialValue));
-        
+
+        // Add growth updates
         foreach (var update in _portfolio.GrowthUpdates.OrderBy(g => g.Date))
         {
             points.Add((update.Date, update.Value));
         }
-        
-        // Draw visual line chart
-        DrawPortfolioVisualLineChart(points);
+
+        // Add current value if it's different from the last point
+        if (points.Count == 0 || points.Last().value != _portfolio.CurrentValue)
+        {
+            points.Add((DateTime.Now, _portfolio.CurrentValue));
+        }
+
+        // Update chart drawable with data
+        _chartDrawable.DataPoints = points;
+        _chartDrawable.LineColor = Color.FromArgb("#4ade80");
+        _chartDrawable.GridColor = Color.FromArgb("#333333");
+        _chartDrawable.TextColor = Color.FromArgb("#888888");
+
+        // Set the drawable to the GraphicsView
+        PortfolioGrowthChartCanvas.Drawable = _chartDrawable;
+
+        // Force a redraw
+        PortfolioGrowthChartCanvas.Invalidate();
     }
-    
-    private void DrawPortfolioVisualLineChart(List<(DateTime date, decimal value)> points)
+
+    private void UpdateWithdrawalsSummary()
     {
-        // Clear previous drawings
-        PortfolioGrowthChartCanvas.BackgroundColor = Color.FromArgb("#1a1a2e");
-        
-        if (points.Count < 2) return;
-        
-        // Calculate value range
-        var minValue = points.Min(p => p.value);
-        var maxValue = points.Max(p => p.value);
-        var valueRange = maxValue - minValue;
-        
-        if (valueRange == 0) valueRange = 1;
-        
-        // Calculate date range
-        var startDate = points.Min(p => p.date);
-        var endDate = points.Max(p => p.date);
-        var dateRange = endDate - startDate;
-        
-        if (dateRange.TotalDays == 0) dateRange = TimeSpan.FromDays(1);
-        
-        // Update chart label with current value and growth info
-        var growth = _portfolio.CurrentValue - _portfolio.InitialValue;
-        var growthPercent = _portfolio.TotalGrowthPercent;
-        PortfolioChartLabel.Text = $"Current: {_portfolio.CurrentValue:0.00} USDT | Growth: {growth:+0.00;-0.00} ({growthPercent:+0.00;-0.00}%)";
+        WithdrawalsTotalLabel.Text = $"{_portfolio.TotalWithdrawals:0.00} USDT";
+        WithdrawalsCountLabel.Text = _portfolioWithdrawals.Count.ToString();
     }
-    
+
     private async void OnPortfolioEditInitialValueClicked(object? sender, EventArgs e)
     {
         var valueStr = await DisplayPromptAsync(
@@ -998,13 +1014,16 @@ public partial class MainPage : ContentPage
             "Enter current portfolio value (USDT):",
             initialValue: _portfolio.CurrentValue.ToString("0.00"),
             keyboard: Keyboard.Numeric);
-        
+
         if (string.IsNullOrEmpty(valueStr) || !decimal.TryParse(valueStr, out var value))
             return;
-        
-        await _webSocket.SendUpdateCurrentValueAsync(value);
+
+        // Add date picker for the update
+        var date = await ShowDateTimePickerDialog(DateTime.Now);
+
+        // Add a growth update with the selected date instead of just updating current value
+        await _webSocket.SendAddGrowthUpdateAsync(value, "", date);
     }
-    
     
     private async void OnPortfolioAddWithdrawalClicked(object? sender, EventArgs e)
     {
@@ -1133,33 +1152,33 @@ public partial class MainPage : ContentPage
     {
         var tcs = new TaskCompletionSource<DateTime>();
         var selectedDate = initialDate;
-        
+
         var datePicker = new DatePicker
         {
             Date = initialDate,
             MinimumDate = new DateTime(2020, 1, 1),
             MaximumDate = DateTime.Now
         };
-        
+
         datePicker.DateSelected += (s, e) =>
         {
             selectedDate = e.NewDate;
         };
-        
+
         var okButton = new Button { Text = "OK", BackgroundColor = Color.FromArgb("#1e3a5f"), TextColor = Colors.White };
         okButton.Clicked += (s, e) =>
         {
             tcs.SetResult(selectedDate);
             Shell.Current.Navigation.PopModalAsync();
         };
-        
+
         var cancelButton = new Button { Text = "Cancel", BackgroundColor = Color.FromArgb("#5f1e3a"), TextColor = Colors.White };
         cancelButton.Clicked += (s, e) =>
         {
             tcs.SetResult(initialDate);
             Shell.Current.Navigation.PopModalAsync();
         };
-        
+
         var dialog = new ContentPage
         {
             Title = "Select Date",
@@ -1180,590 +1199,50 @@ public partial class MainPage : ContentPage
                 }
             }
         };
-        
+
         await Shell.Current.Navigation.PushModalAsync(dialog);
         return await tcs.Task;
     }
+
+    private async Task<DateTime> ShowDateTimePickerDialog(DateTime initialDateTime)
+    {
+        var now = DateTime.Now;
+        var result = await DisplayActionSheet(
+            "Select Date & Time",
+            "Cancel",
+            null,
+            $"Now: {now:MM/dd HH:mm}",
+            $"5 min ago: {now.AddMinutes(-5):MM/dd HH:mm}",
+            $"15 min ago: {now.AddMinutes(-15):MM/dd HH:mm}",
+            $"30 min ago: {now.AddMinutes(-30):MM/dd HH:mm}",
+            $"1 hour ago: {now.AddHours(-1):MM/dd HH:mm}",
+            $"Custom Date...");
+
+        if (result == "Cancel" || string.IsNullOrEmpty(result))
+            return initialDateTime;
+
+        if (result == "Custom Date...")
+        {
+            // For custom date, use a simple date input
+            var dateStr = await DisplayPromptAsync("Custom Date", "Enter date (MM/dd/yyyy):", initialValue: now.ToString("MM/dd/yyyy"));
+            if (string.IsNullOrEmpty(dateStr) || !DateTime.TryParse(dateStr, out var customDate))
+                return initialDateTime;
+
+            var timeStr = await DisplayPromptAsync("Custom Time", "Enter time (HH:mm):", initialValue: now.ToString("HH:mm"));
+            if (string.IsNullOrEmpty(timeStr) || !TimeSpan.TryParse(timeStr, out var customTime))
+                return initialDateTime;
+
+            return customDate.Date + customTime;
+        }
+
+        // Parse the selected time from the action sheet
+        var timePart = result.Split(':')[1]; // Get HH:mm part
+        if (TimeSpan.TryParse(timePart.Trim(), out var selectedTime))
+        {
+            var selectedDate = now.Date; // Use today's date
+            return selectedDate + selectedTime;
+        }
+
+        return now;
+    }
 }
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing
-        
-        // Create a simple line chart using a custom approach
-        // We'll create a visual representation using a custom control or drawing

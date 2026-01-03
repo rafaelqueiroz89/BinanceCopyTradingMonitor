@@ -296,7 +296,7 @@ namespace BinanceMonitorMaui.Models
         public List<GrowthUpdate> GrowthUpdates { get; set; } = new();
         public List<Withdrawal> Withdrawals { get; set; } = new();
         
-        public decimal TotalGrowth => CurrentValue - InitialValue;
+        public decimal TotalGrowth => CurrentValue - InitialValue - TotalWithdrawals;
         public decimal TotalGrowthPercent => InitialValue == 0 ? 0 : ((CurrentValue - InitialValue) / InitialValue) * 100;
         public decimal TotalWithdrawals => Withdrawals.Sum(w => w.Amount);
     }

@@ -35,7 +35,7 @@ namespace BinanceCopyTradingMonitor
         public event Func<string, (bool Success, decimal AvgPnL, decimal AvgPnLPercent, int DataPoints, string Message)>? OnGetAvgPnLRequested; // uniqueKey
         public event Func<PortfolioData>? OnGetPortfolioRequested;
         public event Action<decimal, DateTime>? OnUpdateInitialValueRequested;
-        public event Action<decimal, string>? OnAddGrowthUpdateRequested;
+        public event Action<decimal, string, DateTime>? OnAddGrowthUpdateRequested;
         public event Action<decimal>? OnUpdateCurrentValueRequested;
         public event Action<decimal, string, string, string>? OnAddWithdrawalRequested;
         public event Func<string, decimal?, string?, string?, string?, bool>? OnUpdateWithdrawalRequested;
@@ -415,8 +415,10 @@ namespace BinanceCopyTradingMonitor
                     case "add_growth_update":
                         var growthValue = (decimal?)json?.value ?? 0;
                         var growthNotes = (string?)json?.notes ?? "";
-                        Log($"Add growth update: {growthValue} USDT");
-                        OnAddGrowthUpdateRequested?.Invoke(growthValue, growthNotes);
+                        var growthDateStr = (string?)json?.date ?? DateTime.Now.ToString("o");
+                        DateTime.TryParse(growthDateStr, out var growthDate);
+                        Log($"Add growth update: {growthValue} USDT (date: {growthDate:yyyy-MM-dd HH:mm})");
+                        OnAddGrowthUpdateRequested?.Invoke(growthValue, growthNotes, growthDate);
                         await SendToClientAsync(webSocket, new
                         {
                             type = "portfolio_update_result",
@@ -690,4 +692,3 @@ namespace BinanceCopyTradingMonitor
         }
     }
 }
-

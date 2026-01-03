@@ -297,10 +297,10 @@ namespace BinanceMonitorMaui.Services
                     {
                         portfolio.GrowthUpdates.Add(new GrowthUpdate
                         {
-                            Id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "",
-                            Date = item.TryGetProperty("date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
-                            Value = item.TryGetProperty("value", out var valEl) ? valEl.GetDecimal() : 0,
-                            Notes = item.TryGetProperty("notes", out var notesEl) ? notesEl.GetString() ?? "" : ""
+                            Id = item.TryGetProperty("Id", out var idEl) ? idEl.GetString() ?? "" : "",
+                            Date = item.TryGetProperty("Date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
+                            Value = item.TryGetProperty("Value", out var valEl) ? valEl.GetDecimal() : 0,
+                            Notes = item.TryGetProperty("Notes", out var notesEl) ? notesEl.GetString() ?? "" : ""
                         });
                     }
                 }
@@ -312,12 +312,12 @@ namespace BinanceMonitorMaui.Services
                     {
                         portfolio.Withdrawals.Add(new Withdrawal
                         {
-                            Id = item.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? "" : "",
-                            Date = item.TryGetProperty("date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
-                            Amount = item.TryGetProperty("amount", out var amountEl) ? amountEl.GetDecimal() : 0,
-                            Category = item.TryGetProperty("category", out var catEl) ? catEl.GetString() ?? "" : "",
-                            Description = item.TryGetProperty("description", out var descEl) ? descEl.GetString() ?? "" : "",
-                            Currency = item.TryGetProperty("currency", out var currEl) ? currEl.GetString() ?? "USDT" : "USDT"
+                            Id = item.TryGetProperty("Id", out var idEl) ? idEl.GetString() ?? "" : "",
+                            Date = item.TryGetProperty("Date", out var dateEl) && DateTime.TryParse(dateEl.GetString(), out var date) ? date : DateTime.Now,
+                            Amount = item.TryGetProperty("Amount", out var amountEl) ? amountEl.GetDecimal() : 0,
+                            Category = item.TryGetProperty("Category", out var catEl) ? catEl.GetString() ?? "" : "",
+                            Description = item.TryGetProperty("Description", out var descEl) ? descEl.GetString() ?? "" : "",
+                            Currency = item.TryGetProperty("Currency", out var currEl) ? currEl.GetString() ?? "USDT" : "USDT"
                         });
                     }
                 }
@@ -491,8 +491,22 @@ namespace BinanceMonitorMaui.Services
             try
             {
                 if (_webSocket?.State != WebSocketState.Open) return;
-                
+
                 var message = System.Text.Json.JsonSerializer.Serialize(new { type = "update_current_value", value });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+
+        public async Task SendAddGrowthUpdateAsync(decimal value, string notes = "", DateTime? date = null)
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+
+                var updateDate = date ?? DateTime.Now;
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "add_growth_update", value, notes, date = updateDate.ToString("o") });
                 var buffer = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
             }
