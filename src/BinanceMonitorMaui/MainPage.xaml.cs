@@ -40,6 +40,7 @@ public partial class MainPage : ContentPage
         _webSocket.OnAvgPnLResult += OnAvgPnLResultReceived;
         _webSocket.OnPortfolioDataReceived += OnPortfolioDataReceived;
         _webSocket.OnPortfolioUpdateResult += OnPortfolioUpdateResult;
+        _webSocket.OnGrowthScraped += OnGrowthScrapedReceived;
         
         _alertService.OnAlertTriggered += OnCustomAlertTriggered;
         
@@ -321,15 +322,27 @@ public partial class MainPage : ContentPage
             await DisplayAlert("Not Connected", "Connect to server first", "OK");
             return;
         }
-        
-        bool confirm = await DisplayAlert("Restart Chrome", 
-            "This will kill Chrome and restart the scraper. Continue?", 
+
+        bool confirm = await DisplayAlert("Restart Chrome",
+            "This will kill Chrome and restart the scraper. Continue?",
             "Restart", "Cancel");
-            
+
         if (!confirm) return;
-        
+
         await _webSocket.SendRestartAsync();
         ShowToast("Restarting Chrome...");
+    }
+
+    public async Task ScrapeGrowthAsync()
+    {
+        if (!_webSocket.IsConnected)
+        {
+            await DisplayAlert("Not Connected", "Connect to server first", "OK");
+            return;
+        }
+
+        ShowLoading("Scraping growth value...");
+        await _webSocket.SendScrapeGrowthAsync();
     }
     
     public async Task ChangeServerUrlAsync()
@@ -753,11 +766,33 @@ public partial class MainPage : ContentPage
                 ShowToast("No data yet - keep app running");
                 return;
             }
-            
+
             var icon = result.AvgPnL >= 0 ? "📈" : "📉";
             var toastText = $"{icon} 1h Avg: {result.AvgPnL:+0.00;-0.00} ({result.AvgPnLPercent:+0.00;-0.00}%)";
-            
+
             ShowToast(toastText);
+        });
+    }
+
+    private void OnGrowthScrapedReceived(string growthValue, string timestamp)
+    {
+        MainThread.BeginInvokeOnMainThread(async () =>
+        {
+            HideLoading();
+
+            if (growthValue.StartsWith("ERROR") || growthValue.StartsWith("NOT_"))
+            {
+                ShowToast($"❌ Scraping failed: {growthValue}");
+                return;
+            }
+
+            // Refresh portfolio data to show updated growth
+            if (_webSocket.IsConnected)
+            {
+                await _webSocket.SendGetPortfolioAsync();
+            }
+
+            ShowToast($"📊 Growth updated: {growthValue}");
         });
     }
     
@@ -916,7 +951,7 @@ public partial class MainPage : ContentPage
     {
         PortfolioInitialValueLabel.Text = $"{_portfolio.InitialValue:0.00} USDT";
         PortfolioCurrentValueLabel.Text = $"{_portfolio.CurrentValue:0.00} USDT";
-        PortfolioInitialDateLabel.Text = $"{_portfolio.InitialDate:yyyy-MM-dd}";
+        PortfolioInitialDateLabel.Text = $"{_portfolio.InitialDate:dd/MM/yyyy}";
 
         var growth = _portfolio.TotalGrowth;
         var growthPercent = _portfolio.TotalGrowthPercent;

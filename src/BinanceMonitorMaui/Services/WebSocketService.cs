@@ -36,6 +36,7 @@ namespace BinanceMonitorMaui.Services
         public event Action<AvgPnLResult>? OnAvgPnLResult;
         public event Action<PortfolioData>? OnPortfolioDataReceived;
         public event Action<bool, string>? OnPortfolioUpdateResult;
+        public event Action<string, string>? OnGrowthScraped;
 
         public bool IsConnected => _webSocket?.State == WebSocketState.Open;
 
@@ -263,6 +264,13 @@ namespace BinanceMonitorMaui.Services
                         var updateMessage = message.message ?? "";
                         System.Diagnostics.Debug.WriteLine($"[WS] Portfolio update result: {updateSuccess} - {updateMessage}");
                         OnPortfolioUpdateResult?.Invoke(updateSuccess, updateMessage);
+                        break;
+
+                    case "growth_scraped":
+                        var growthValue = message.value ?? "";
+                        var growthTimestamp = message.timestamp ?? "";
+                        System.Diagnostics.Debug.WriteLine($"[WS] Growth scraped: {growthValue} at {growthTimestamp}");
+                        OnGrowthScraped?.Invoke(growthValue, growthTimestamp);
                         break;
                 }
             }
@@ -557,8 +565,21 @@ namespace BinanceMonitorMaui.Services
             try
             {
                 if (_webSocket?.State != WebSocketState.Open) return;
-                
+
                 var message = System.Text.Json.JsonSerializer.Serialize(new { type = "delete_withdrawal", id });
+                var buffer = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
+            }
+            catch { }
+        }
+
+        public async Task SendScrapeGrowthAsync()
+        {
+            try
+            {
+                if (_webSocket?.State != WebSocketState.Open) return;
+
+                var message = System.Text.Json.JsonSerializer.Serialize(new { type = "scrape_growth" });
                 var buffer = Encoding.UTF8.GetBytes(message);
                 await _webSocket.SendAsync(new ArraySegment<byte>(buffer), WebSocketMessageType.Text, true, _cts?.Token ?? CancellationToken.None);
             }

@@ -149,7 +149,7 @@
                         </Grid>
                         
                         <!-- Growth Section -->
-                        <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="12" HasShadow="False" HeightRequest="MaxValue">
+                        <Frame BackgroundColor="#16213e" CornerRadius="12" Padding="12" HasShadow="False">
                             <VerticalStackLayout Spacing="8">
                                 <Label Text="📊 Growth" FontSize="14" FontAttributes="Bold" TextColor="White"/>
                                 
@@ -158,12 +158,12 @@
                                     <GraphicsView x:Name="PortfolioGrowthChartCanvas" HeightRequest="180"/>
                                 </Frame>
                                 
-                                <CollectionView x:Name="PortfolioGrowthUpdatesCollection" HeightRequest="120">
+                                <CollectionView x:Name="PortfolioGrowthUpdatesCollection" HeightRequest="200">
                                     <CollectionView.ItemTemplate>
                                         <DataTemplate>
                                             <Frame BackgroundColor="#0f0f1a" CornerRadius="6" Padding="8" Margin="0,0,0,4" HasShadow="False">
                                                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto">
-                                                    <Label Grid.Row="0" Grid.Column="0" Text="{Binding Date, StringFormat='{0:MM-dd HH:mm}'}" 
+                                                    <Label Grid.Row="0" Grid.Column="0" Text="{Binding Date, StringFormat='{0:dd/MM/yyyy HH:mm}'}" 
                                                            FontSize="10" TextColor="#aaa"/>
                                                     <Label Grid.Row="1" Grid.Column="0" Text="{Binding Value, StringFormat='{0:+0.00;-0.00} USDT'}" 
                                                            FontSize="12" FontAttributes="Bold" TextColor="#4ade80" Margin="0,2,0,0"/>
@@ -211,22 +211,22 @@
                             <VerticalStackLayout Spacing="8">
                                 <Label Text="📋 Withdrawal History" FontSize="14" FontAttributes="Bold" TextColor="White"/>
 
-                                <CollectionView x:Name="PortfolioWithdrawalsCollection" HeightRequest="400">
+                                <CollectionView x:Name="PortfolioWithdrawalsCollection" HeightRequest="475">
                                     <CollectionView.ItemTemplate>
                                         <DataTemplate>
                                             <Frame BackgroundColor="#0f0f1a" CornerRadius="6" Padding="10" Margin="0,0,0,6" HasShadow="False">
-                                                <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="Auto,Auto,Auto">
+                                                <Grid ColumnDefinitions="*,Auto,Auto" RowDefinitions="20,25,20">
                                                     <Label Grid.Row="0" Grid.Column="0" Text="{Binding CategoryDisplay}"
                                                            FontSize="12" FontAttributes="Bold" TextColor="#4ade80"/>
                                                     <Label Grid.Row="0" Grid.Column="1" Text="{Binding Date, StringFormat='{0:MM-dd yyyy}'}"
                                                            FontSize="11" TextColor="#666" HorizontalOptions="End"/>
-                                                    <Button Grid.Row="0" Grid.Column="2" Text="✏️" FontSize="14" HeightRequest="28" WidthRequest="28"
+                                                    <Button Grid.Row="1" Grid.Column="1" Text="✏️" FontSize="14" HeightRequest="28" WidthRequest="28"
                                                             BackgroundColor="Transparent" TextColor="#888" Padding="0"
                                                             Clicked="OnPortfolioEditWithdrawalClicked"/>
 
                                                     <Label Grid.Row="1" Grid.Column="0" Text="{Binding Amount, StringFormat='{0:0.00} {1}'}"
                                                            FontSize="14" FontAttributes="Bold" TextColor="#e94560" Margin="0,4,0,0"/>
-                                                    <Button Grid.Row="1" Grid.Column="2" Text="🗑️" FontSize="14" HeightRequest="28" WidthRequest="28"
+                                                    <Button Grid.Row="2" Grid.Column="1" Text="🗑️" FontSize="14" HeightRequest="28" WidthRequest="28"
                                                             BackgroundColor="Transparent" TextColor="#e94560" Padding="0"
                                                             Clicked="OnPortfolioDeleteWithdrawalClicked" Margin="0,4,0,0"/>
 

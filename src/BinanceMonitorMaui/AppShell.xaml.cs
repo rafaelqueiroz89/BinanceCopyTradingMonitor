@@ -74,7 +74,16 @@ public partial class AppShell : Shell
             await mainPage.PortfolioAnalysisAsync();
         }
     }
-    
+
+    private async void OnFlyoutScrapeGrowthClicked(object? sender, EventArgs e)
+    {
+        Shell.Current.FlyoutIsPresented = false;
+        if (Shell.Current.CurrentPage is MainPage mainPage)
+        {
+            await mainPage.ScrapeGrowthAsync();
+        }
+    }
+
     private async void OnFlyoutRestartClicked(object? sender, EventArgs e)
     {
         Shell.Current.FlyoutIsPresented = false;

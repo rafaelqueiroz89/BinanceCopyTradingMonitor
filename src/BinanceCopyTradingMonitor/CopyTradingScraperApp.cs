@@ -410,6 +410,26 @@ namespace BinanceCopyTradingMonitor
                     return _portfolioStore.DeleteWithdrawal(id);
                 };
 
+                _webSocketServer.OnScrapeGrowthRequested += async () =>
+                {
+                    Console.WriteLine("[GROWTH] On-demand growth scraping requested");
+                    if (_scraper != null)
+                    {
+                        try
+                        {
+                            var growthValue = await _scraper.ScrapeGrowthOnDemandAsync();
+                            Console.WriteLine($"[GROWTH] On-demand scraping completed: {growthValue}");
+                            return growthValue;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[GROWTH] Error in on-demand scraping: {ex.Message}");
+                            return "ERROR";
+                        }
+                    }
+                    return "SCRAPER_NOT_INITIALIZED";
+                };
+
                 bool started = await _webSocketServer.StartAsync();
                 
                 if (started)
@@ -447,6 +467,39 @@ namespace BinanceCopyTradingMonitor
                 _scraper.OnError += (error) =>
                 {
                     Console.WriteLine($"[ERROR] {error}");
+                };
+
+                _scraper.OnGrowthScraped += (growthValue) =>
+                {
+                    Console.WriteLine($"[GROWTH] Startup scraped value: {growthValue}");
+                    // Don't broadcast startup scraping to mobile apps
+                };
+
+                _scraper.OnGrowthScrapedOnDemand += async (growthValue) =>
+                {
+                    Console.WriteLine($"[GROWTH] On-demand scraped value: {growthValue}");
+
+                    // Automatically add growth update to portfolio
+                    if (decimal.TryParse(growthValue, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var growthDecimal))
+                    {
+                        _portfolioStore.AddGrowthUpdate(growthDecimal, "Growth scraped from Binance", DateTime.Now);
+                        Console.WriteLine($"[GROWTH] Automatically added growth update: {growthDecimal} USDT");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[GROWTH] Failed to parse growth value: {growthValue}");
+                    }
+
+                    // Broadcast on-demand growth value to mobile app
+                    if (_webSocketServer != null)
+                    {
+                        await _webSocketServer.BroadcastMessageAsync(new
+                        {
+                            type = "growth_scraped",
+                            value = growthValue,
+                            timestamp = DateTime.UtcNow.ToString("o")
+                        });
+                    }
                 };
 
                 bool started = await _scraper.StartAsync();

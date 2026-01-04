@@ -208,6 +208,10 @@ namespace BinanceMonitorMaui.Models
         public decimal? avgPnL { get; set; }
         public decimal? avgPnLPercent { get; set; }
         public int? dataPoints { get; set; }
+
+        // Growth scraping result
+        public string? value { get; set; }
+        public string? timestamp { get; set; }
     }
     
     public class PositionInsightMsg

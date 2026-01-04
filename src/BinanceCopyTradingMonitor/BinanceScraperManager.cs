@@ -22,7 +22,9 @@ namespace BinanceCopyTradingMonitor
         public event Action<string>? OnError;
         public event Action<string>? OnLog;
         public event Action? OnRestartRequested;
-        
+        public event Action<string>? OnGrowthScraped;
+        public event Action<string>? OnGrowthScrapedOnDemand;
+
         private volatile bool _refreshRequested = false;
         private volatile bool _restartRequested = false;
         private DateTime _lastAutoRefresh = DateTime.Now;
@@ -301,8 +303,17 @@ namespace BinanceCopyTradingMonitor
 
                 _page = (await _browser.PagesAsync()).First();
 
+                Log("Navigating to Binance Copy Trading page...");
+                await _page.GoToAsync("https://www.binance.com/en/copy-trading",
+                    new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
+
+                // Scrape the growth value from the main page
+                var growthValue = await ScrapeGrowthValueAsync();
+                Log($"Growth value scraped: {growthValue}");
+
+                // Navigate to copy management for trader positions
                 Log("Navigating to Binance Copy Management...");
-                await _page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management", 
+                await _page.GoToAsync("https://www.binance.com/en/copy-trading/copy-management",
                     new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 60000 });
 
                 Log("Waiting for login/traders to appear...");
@@ -859,7 +870,7 @@ namespace BinanceCopyTradingMonitor
             try
             {
                 _isRunning = false;
-                
+
                 foreach (var kvp in _traderPages)
                 {
                     try
@@ -869,12 +880,108 @@ namespace BinanceCopyTradingMonitor
                     catch { }
                 }
                 _traderPages.Clear();
-                
+
                 try { _page?.CloseAsync().Wait(500); } catch { }
                 try { _browser?.CloseAsync().Wait(500); } catch { }
                 try { _browser?.Dispose(); } catch { }
             }
             catch { }
+        }
+
+        private async Task<string> ScrapeGrowthValueAsync()
+        {
+            try
+            {
+                if (_page == null)
+                {
+                    Error("Page is null when trying to scrape growth value");
+                    return "ERROR";
+                }
+
+                // Wait for the selector to appear
+                await _page.WaitForSelectorAsync("div.typography-headline0.md\\:typography-headline2", new WaitForSelectorOptions { Timeout = 10000 });
+
+                // Extract the text content from the selector
+                var growthValue = await _page.EvaluateExpressionAsync<string>(
+                    "document.querySelector('div.typography-headline0.md\\\\:typography-headline2')?.textContent?.trim() || 'NOT_FOUND'"
+                );
+
+                if (growthValue == "NOT_FOUND")
+                {
+                    Error("Growth value selector not found");
+                    return "NOT_FOUND";
+                }
+
+                // Fire the event to notify listeners
+                OnGrowthScraped?.Invoke(growthValue);
+
+                return growthValue;
+            }
+            catch (Exception ex)
+            {
+                Error($"Error scraping growth value: {ex.Message}");
+                return "ERROR";
+            }
+        }
+
+        public async Task<string> ScrapeGrowthOnDemandAsync()
+        {
+            try
+            {
+                if (_browser == null)
+                {
+                    Error("Browser not initialized for on-demand growth scraping");
+                    return "ERROR";
+                }
+
+                // Create a new page for scraping growth
+                var growthPage = await _browser.NewPageAsync();
+
+                try
+                {
+                    Log("Navigating to Binance Copy Trading for growth scraping...");
+                    await growthPage.GoToAsync("https://www.binance.com/en/copy-trading",
+                        new NavigationOptions { WaitUntil = new[] { WaitUntilNavigation.Networkidle2 }, Timeout = 30000 });
+
+                    // Scrape the growth value
+                    var growthValue = await ScrapeGrowthValueFromPageAsync(growthPage);
+
+                    Log($"On-demand growth scraping completed: {growthValue}");
+                    OnGrowthScrapedOnDemand?.Invoke(growthValue);
+
+                    return growthValue;
+                }
+                finally
+                {
+                    await growthPage.CloseAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Error($"Error in on-demand growth scraping: {ex.Message}");
+                return "ERROR";
+            }
+        }
+
+        private async Task<string> ScrapeGrowthValueFromPageAsync(IPage page)
+        {
+            try
+            {
+                // Wait for the selector to appear
+                await page.WaitForSelectorAsync("div.typography-headline0.md\\:typography-headline2", new WaitForSelectorOptions { Timeout = 10000 });
+
+                // Extract the text content from the selector
+                var growthValue = await page.EvaluateExpressionAsync<string>(
+                    "document.querySelector('div.typography-headline0.md\\\\:typography-headline2')?.textContent?.trim() || 'NOT_FOUND'"
+                );
+
+                return growthValue == "NOT_FOUND" ? "NOT_FOUND" : growthValue;
+            }
+            catch (Exception ex)
+            {
+                Error($"Error scraping growth from page: {ex.Message}");
+                return "ERROR";
+            }
         }
     }
 

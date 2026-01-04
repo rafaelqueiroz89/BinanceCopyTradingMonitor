@@ -40,6 +40,7 @@ namespace BinanceCopyTradingMonitor
         public event Action<decimal, string, string, string>? OnAddWithdrawalRequested;
         public event Func<string, decimal?, string?, string?, string?, bool>? OnUpdateWithdrawalRequested;
         public event Func<string, bool>? OnDeleteWithdrawalRequested;
+        public event Func<Task<string>>? OnScrapeGrowthRequested;
 
         public int ConnectedClients => _clients.Count(c => c.Value.IsAuthenticated);
         public int Port => _port;
@@ -484,6 +485,29 @@ namespace BinanceCopyTradingMonitor
                                 type = "portfolio_update_result",
                                 success = deleteSuccess,
                                 message = deleteSuccess ? "Withdrawal deleted" : "Withdrawal not found"
+                            }, cancellationToken);
+                        }
+                        break;
+
+                    case "scrape_growth":
+                        Log("Growth scraping requested");
+                        if (OnScrapeGrowthRequested != null)
+                        {
+                            var scrapedGrowthValue = await OnScrapeGrowthRequested.Invoke();
+                            await SendToClientAsync(webSocket, new
+                            {
+                                type = "growth_scraped",
+                                value = scrapedGrowthValue,
+                                timestamp = DateTime.UtcNow.ToString("o")
+                            }, cancellationToken);
+                        }
+                        else
+                        {
+                            await SendToClientAsync(webSocket, new
+                            {
+                                type = "growth_scraped",
+                                value = "NOT_SUPPORTED",
+                                timestamp = DateTime.UtcNow.ToString("o")
                             }, cancellationToken);
                         }
                         break;
